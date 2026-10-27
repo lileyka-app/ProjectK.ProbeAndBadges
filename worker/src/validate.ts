@@ -8,8 +8,10 @@ import {
   type Bundle,
   type ImageSet,
   type Override,
+  POINT_LEVELS,
   type Probe,
   type ProbePoint,
+  type Edition,
   type Requirement,
   SCHEMA_VERSION,
   STATUSES,
@@ -54,13 +56,14 @@ export function isImageName(name: unknown): name is string {
 
 // A typo in a hand-filled template ("requirments") must fail loudly, not vanish.
 const FIELDS: Record<string, Set<string>> = {
-  bundle: new Set(["schemaVersion", "source", "categories", "badges", "probes", "awards", "overrides"]),
+  bundle: new Set(["schemaVersion", "source", "categories", "editions", "badges", "probes", "awards", "overrides"]),
   source: new Set(["krai", "name", "contact", "generator", "generatedAtUtc"]),
   category: new Set(["id", "title"]),
+  edition: new Set(["id", "title", "ulad", "krai"]),
   badge: new Set(["id", "family", "level", "title", "categories", "ulady", "krai", "status", "images", "prerequisites", "requirements", "instructorRequirements", "author", "updatedOn", "notes"]),
-  probe: new Set(["id", "title", "ulad", "krai", "order", "status", "images", "sections", "points"]),
+  probe: new Set(["id", "title", "ulad", "krai", "edition", "order", "status", "images", "sections", "points"]),
   section: new Set(["id", "code", "title", "points"]),
-  point: new Set(["id", "text"]),
+  point: new Set(["id", "text", "level", "competencies"]),
   award: new Set(["id", "group", "title", "ulad", "krai", "level", "status", "images", "description", "requirements"]),
   override: new Set(["krai", "target", "hidden", "title", "addRequirements", "removeRequirements", "addPoints", "removePoints", "note"]),
   overridePoint: new Set(["section", "id", "text"]),
@@ -84,6 +87,7 @@ export function checkFields(raw: unknown): Issue[] {
       case "bundle":
         walk(v.source, "source", ".source");
         each("categories", "category");
+        each("editions", "edition");
         each("badges", "badge");
         each("probes", "probe");
         each("awards", "award");
@@ -136,6 +140,7 @@ export function validate(bundle: Bundle, images: Set<string> | null, reference?:
   const awardIds = ids(bundle.awards, reference?.awards);
 
   unique(add, "categories", bundle.categories.map((c) => c.id));
+  unique(add, "editions", bundle.editions.map((p) => p.id));
   unique(add, "badges", bundle.badges.map((b) => b.id));
   unique(add, "probes", bundle.probes.map((p) => p.id));
   unique(add, "awards", bundle.awards.map((a) => a.id));
@@ -145,6 +150,10 @@ export function validate(bundle: Bundle, images: Set<string> | null, reference?:
     text(add, `categories[${i}].title`, c.title);
   });
 
+  // The bundle's own editions win over stored ones with the same id: that is how one is renamed.
+  const editions = new Map<string, Edition>([...(reference?.editions ?? []), ...bundle.editions].map((p) => [p.id, p]));
+  bundle.editions.forEach((p, i) => validateEdition(add, bundle, p, `editions[${i}]`, reference));
+
   bundle.badges.forEach((b, i) => validateBadge(add, bundle, b, `badges[${i}]`, badgeIds, categoryIds, images, reference));
 
   const pointIds = new Set<string>();
@@ -152,7 +161,8 @@ export function validate(bundle: Bundle, images: Set<string> | null, reference?:
     const own = new Set(bundle.probes.map((p) => p.id));
     for (const p of reference.probes) if (!own.has(p.id)) allPoints(p).forEach((x) => pointIds.add(x.id));
   }
-  bundle.probes.forEach((p, i) => validateProbe(add, bundle, p, `probes[${i}]`, pointIds, images, reference));
+  bundle.probes.forEach((p, i) => validateProbe(add, bundle, p, `probes[${i}]`, pointIds, editions, images, reference));
+  probeOrders(add, bundle, reference);
   bundle.awards.forEach((a, i) => validateAward(add, bundle, a, `awards[${i}]`, images, reference));
 
   const overrideKeys = new Set<string>();
@@ -190,11 +200,27 @@ function validateBadge(add: Add, bundle: Bundle, b: Badge, path: string, badgeId
   }
 }
 
-function validateProbe(add: Add, bundle: Bundle, p: Probe, path: string, pointIds: Set<string>, images: Set<string> | null, reference?: Bundle) {
+function validateEdition(add: Add, bundle: Bundle, p: Edition, path: string, reference?: Bundle) {
+  slug(add, `${path}.id`, p.id);
+  text(add, `${path}.title`, p.title);
+  if (!(ULADY as readonly string[]).includes(p.ulad)) add(error(`${path}.ulad`, `Unknown ulad '${p.ulad}'.`));
+  kraiAndOwnership(add, bundle, reference, path, p.krai, reference?.editions.find((x) => x.id === p.id)?.krai);
+  // Stored probes the bundle does not resend have to keep fitting the edition they name.
+  const resent = new Set(bundle.probes.map((x) => x.id));
+  const krai = p.krai ?? bundle.source?.krai ?? null;
+  for (const probe of reference?.probes ?? []) {
+    if (probe.edition !== p.id || resent.has(probe.id)) continue;
+    if (probe.ulad !== p.ulad || (probe.krai ?? null) !== krai) add(error(path, `Probe ${probe.id} (${probe.ulad}, ${probe.krai ?? "—"}) belongs to this edition; move it first.`));
+  }
+}
+
+function validateProbe(add: Add, bundle: Bundle, p: Probe, path: string, pointIds: Set<string>, editions: Map<string, Edition>, images: Set<string> | null, reference?: Bundle) {
   slug(add, `${path}.id`, p.id);
   text(add, `${path}.title`, p.title);
   if (!(ULADY as readonly string[]).includes(p.ulad)) add(error(`${path}.ulad`, `Unknown ulad '${p.ulad}'.`));
   kraiAndOwnership(add, bundle, reference, path, p.krai, reference?.probes.find((x) => x.id === p.id)?.krai);
+  if (p.edition != null) probeEdition(add, bundle, p, `${path}.edition`, editions.get(p.edition));
+  if (!Number.isInteger(p.order) || p.order < 0) add(error(`${path}.order`, "Order is a whole number from 0; знак прихильника goes first with 0."));
   status(add, path, p.status);
   imageSet(add, path, p.images, images, false);
   unique(add, `${path}.sections`, p.sections.map((s) => s.code));
@@ -207,12 +233,52 @@ function validateProbe(add: Add, bundle: Bundle, p: Probe, path: string, pointId
   points(add, `${path}.points`, p.points, pointIds);
 }
 
+/** A probe names an edition that exists, and one of its own ulad and krai. */
+function probeEdition(add: Add, bundle: Bundle, p: Probe, path: string, edition: Edition | undefined) {
+  slug(add, path, p.edition);
+  if (!edition) {
+    add(error(path, `Unknown edition '${p.edition}'; add it under editions with the title people see.`));
+    return;
+  }
+  const krai = (x: { krai?: string | null }) => x.krai ?? bundle.source?.krai ?? null;
+  if (edition.ulad !== p.ulad) add(error(path, `Edition '${edition.id}' is for ${edition.ulad}, the probe for ${p.ulad}.`));
+  if (krai(edition) !== krai(p)) add(error(path, `Edition '${edition.id}' belongs to krai '${krai(edition) ?? "—"}', the probe to '${krai(p) ?? "—"}'.`));
+}
+
 function points(add: Add, path: string, list: ProbePoint[], pointIds: Set<string>) {
   list.forEach((p, i) => {
     slug(add, `${path}[${i}].id`, p.id);
     text(add, `${path}[${i}].text`, p.text);
     if (pointIds.has(p.id)) add(error(`${path}[${i}].id`, `Point id '${p.id}' is used twice; point ids are unique across all probes.`));
     pointIds.add(p.id);
+    if (p.level != null && !(POINT_LEVELS as readonly string[]).includes(p.level)) {
+      add(error(`${path}[${i}].level`, `Unknown level '${p.level}'; use one of ${POINT_LEVELS.join(", ")}.`));
+    }
+    if (p.competencies != null) {
+      if (!Array.isArray(p.competencies)) add(error(`${path}[${i}].competencies`, "Competencies are a list of ids."));
+      else {
+        p.competencies.forEach((c) => slug(add, `${path}[${i}].competencies`, c));
+        unique(add, `${path}[${i}].competencies`, p.competencies);
+      }
+    }
+  });
+}
+
+/**
+ * Lilejka opens a person's probes one after another by `order`, so two live probes of the same
+ * ulad, krai and edition may not share a place. Retired ones are out of the line already.
+ */
+function probeOrders(add: Add, bundle: Bundle, reference?: Bundle) {
+  const own = new Set(bundle.probes.map((p) => p.id));
+  const line = (p: Probe) => `${p.ulad}|${p.krai ?? ""}|${p.edition ?? ""}`;
+  const taken = new Map<string, Probe>();
+  for (const p of reference?.probes ?? []) if (!own.has(p.id) && p.status !== "retired") taken.set(`${line(p)}|${p.order}`, p);
+  bundle.probes.forEach((p, i) => {
+    if (p.status === "retired") return;
+    const key = `${line(p)}|${p.order}`;
+    const other = taken.get(key);
+    if (other) add(error(`probes[${i}].order`, `Probe ${other.id} already stands at ${p.order} in this edition; give each probe its own place.`));
+    else taken.set(key, p);
   });
 }
 

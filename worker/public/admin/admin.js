@@ -5,10 +5,12 @@
 const KINDS = {
   badge: { plural: "badges", list: "badges", label: "Вмілість" },
   probe: { plural: "probes", list: "probes", label: "Проба" },
+  edition: { plural: "editions", list: "editions", label: "Редакція проб" },
   award: { plural: "awards", list: "awards", label: "Відзначення" },
 };
 const ULADY = { upp: "УПП", upn: "УПН", upyu: "УПЮ", usp: "УСП", ups: "УПС" };
 const STATUS = { approved: "затверджена", trial: "апробаційна", retired: "виведена" };
+const POINT_LEVEL = { knows: "знає", can: "вміє", practises: "практикує" };
 
 const state = {
   me: null,
@@ -48,6 +50,8 @@ async function api(path, { method = "GET", json, body, headers = {} } = {}) {
 const imageSrc = (name) => (name ? `/v1/images/${encodeURIComponent(name)}?v=${state.images.get(name)?.sha256.slice(0, 12) ?? ""}` : "");
 const items = (kind) => state.catalog[KINDS[kind].list];
 const findItem = (kind, id) => items(kind).find((x) => x.id === id);
+/** The name people see for a probe's edition; probes without one are the звичайна проба. */
+const editionTitle = (id) => (id ? (findItem("edition", id)?.title ?? id) : "звичайна проба");
 const canEdit = (krai) => state.me.role === "owner" || (state.me.role === "editor" && state.me.krai.includes(krai));
 
 // ---- boot ------------------------------------------------------------------------------------
@@ -134,7 +138,7 @@ function renderList() {
     .map(
       (x) => `<li data-id="${esc(x.id)}" class="${state.selected?.id === x.id ? "active" : ""}">
         ${x.images?.color ? `<img class="art" loading="lazy" alt="" src="${imageSrc(x.images.color)}">` : `<span style="width:32px"></span>`}
-        <div><div class="t">${esc(x.title)}</div><div class="s">${esc(x.id)} · ${esc(x.krai ?? "—")}${x.status !== "approved" ? ` · ${STATUS[x.status]}` : ""}</div></div>
+        <div><div class="t">${esc(x.title)}</div><div class="s">${esc(x.id)} · ${esc(x.krai ?? "—")}${x.status && x.status !== "approved" ? ` · ${STATUS[x.status]}` : ""}</div></div>
       </li>`,
     )
     .join("");
@@ -211,11 +215,16 @@ function previewHtml(kind, x, unpublished) {
   // numbered in order and the id sits in the tooltip.
   const reqs = (list, numbered = false) =>
     `<ol class="reqs">${list
-      .map((r, i) => `<li class="${state.previewKrai && r.id.startsWith(`${state.previewKrai}-`) ? "added" : ""}" title="${esc(r.id)}"><span class="n">${esc(numbered ? String(i + 1) : r.id)}.</span><span>${md(r.text)}</span></li>`)
+      .map((r, i) => {
+        const level = r.level ? ` <span class="tag">${esc(POINT_LEVEL[r.level] ?? r.level)}</span>` : "";
+        const competencies = (r.competencies ?? []).map((c) => ` <span class="tag">${esc(c)}</span>`).join("");
+        return `<li class="${state.previewKrai && r.id.startsWith(`${state.previewKrai}-`) ? "added" : ""}" title="${esc(r.id)}"><span class="n">${esc(numbered ? String(i + 1) : r.id)}.</span><span>${md(r.text)}${level}${competencies}</span></li>`;
+      })
       .join("")}</ol>`;
   const tags = [
     x.krai ? `<span class="tag ${x.krai === state.previewKrai ? "krai-own" : ""}">край: ${esc(x.krai)}</span>` : "",
     x.status ? `<span class="tag ${x.status}">${STATUS[x.status]}</span>` : "",
+    kind === "probe" ? `<span class="tag">редакція: ${esc(editionTitle(x.edition))} · №${esc(String(x.order))}</span>` : "",
     x.level ? `<span class="tag">рівень ${x.level}</span>` : "",
     ...(x.ulady ?? (x.ulad ? [x.ulad] : [])).map((u) => `<span class="tag">${ULADY[u] ?? u}</span>`),
     ...cats.map((c) => `<span class="tag">${esc(c)}</span>`),
@@ -228,6 +237,13 @@ function previewHtml(kind, x, unpublished) {
       <div class="section-title">Вимоги</div>${reqs(x.requirements)}
       ${x.instructorRequirements ? `<div class="section-title">Інструктор</div><p>${md(x.instructorRequirements)}</p>` : ""}
       <p class="muted">${x.author ? `Розробив: ${esc(x.author)}. ` : ""}${x.updatedOn ? `Оновлено ${esc(x.updatedOn)}.` : ""}</p>`;
+  } else if (kind === "edition") {
+    const probes = state.catalog.probes.filter((p) => p.edition === x.id).sort((a, b) => a.order - b.order);
+    body = `<div class="section-title">Проби редакції</div>${
+      probes.length
+        ? `<ol class="reqs">${probes.map((p) => `<li><span class="n">№${esc(String(p.order))}</span><span>${esc(p.title)} <code>${esc(p.id)}</code>${p.status !== "approved" ? ` <span class="tag ${p.status}">${STATUS[p.status]}</span>` : ""}</span></li>`).join("")}</ol>`
+        : `<p class="muted">Ще жодна проба не має <code>edition: "${esc(x.id)}"</code>.</p>`
+    }<p class="muted">Назву редакції Лілейка показує людям як є, напр. у виборі проби гуртка.</p>`;
   } else if (kind === "probe") {
     body = x.sections.map((s) => `<div class="section-title">${esc(s.code)}. ${esc(s.title)}</div>${reqs(s.points, true)}`).join("") + (x.points.length ? reqs(x.points, true) : "");
   } else {
@@ -249,7 +265,8 @@ function previewHtml(kind, x, unpublished) {
 function template(kind) {
   const krai = state.me.krai[0] ?? "ua";
   if (kind === "badge") return { id: "", title: "", family: null, level: 1, categories: [], ulady: ["upyu"], krai, status: "trial", images: { color: null, bw: null }, prerequisites: [], requirements: [{ id: "1", text: "" }], instructorRequirements: null, author: null, updatedOn: new Date().toISOString().slice(0, 10), notes: [] };
-  if (kind === "probe") return { id: "", title: "", ulad: "upyu", krai, order: items("probe").length + 1, status: "trial", images: { color: null, bw: null }, sections: [], points: [] };
+  if (kind === "edition") return { id: "", title: "", ulad: "upyu", krai };
+  if (kind === "probe") return { id: "", title: "", ulad: "upyu", krai, edition: null, order: items("probe").length + 1, status: "trial", images: { color: null, bw: null }, sections: [], points: [] };
   return { id: "", group: "upyu-vidznachennia", title: "", ulad: "upyu", krai, level: null, status: "trial", images: { color: null, bw: null }, description: null, requirements: [] };
 }
 
@@ -262,7 +279,7 @@ function renderEdit(target, kind, raw) {
     <details ${isBadge ? "" : "open"}><summary>JSON запису</summary><textarea class="json" id="raw-json" rows="18"></textarea></details>
     <div class="row">
       <button id="save">${raw ? "Зберегти" : "Створити"}</button>
-      ${raw && raw.status !== "retired" ? `<button id="retire" class="danger">Вивести з ужитку</button>` : ""}
+      ${raw && raw.status !== "retired" ? `<button id="retire" class="danger">${kind === "edition" ? "Видалити" : "Вивести з ужитку"}</button>` : ""}
       <span class="muted" id="save-note"></span>
     </div>
     <div id="issues"></div>
@@ -293,7 +310,11 @@ function renderEdit(target, kind, raw) {
   const retire = $("#retire", target);
   if (retire)
     retire.onclick = async () => {
-      if (!confirm(`Вивести «${raw.title}»? Запис зникне з API, але поступ людей на ньому збережеться.`)) return;
+      const question =
+        kind === "edition"
+          ? `Видалити редакцію «${raw.title}»? Це можна, лише поки до неї не належить жодна проба.`
+          : `Вивести «${raw.title}»? Запис зникне з API, але поступ людей на ньому збережеться.`;
+      if (!confirm(question)) return;
       try {
         await api(`/v1/admin/entries/${KINDS[kind].plural}/${encodeURIComponent(raw.id)}`, { method: "DELETE" });
         await reload();

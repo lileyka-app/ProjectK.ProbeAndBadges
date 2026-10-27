@@ -82,6 +82,7 @@ app.get("/v1/badges", async (c) => {
 });
 
 for (const [route, list] of [
+  ["editions", "editions"],
   ["badges", "badges"],
   ["probes", "probes"],
   ["awards", "awards"],
@@ -100,6 +101,13 @@ app.get("/v1/probes", async (c) => {
   const { rev, parsed } = await publicCatalog(c.env, new URL(c.req.url).origin, krai, c.executionCtx);
   const ulad = c.req.query("ulad");
   return cachedJson(c, rev, krai, JSON.stringify(parsed.probes.filter((p) => !ulad || p.ulad === ulad)));
+});
+
+app.get("/v1/editions", async (c) => {
+  const krai = kraiParam(c);
+  const { rev, parsed } = await publicCatalog(c.env, new URL(c.req.url).origin, krai, c.executionCtx);
+  const ulad = c.req.query("ulad");
+  return cachedJson(c, rev, krai, JSON.stringify(parsed.editions.filter((p) => !ulad || p.ulad === ulad)));
 });
 
 app.get("/v1/awards", async (c) => {
@@ -166,7 +174,7 @@ app.get("/v1/admin/catalog", async (c) => {
   return c.json({ revision: rev, catalog, images: [...images.values()] });
 });
 
-const KIND_ROUTES: Record<string, Kind> = { categories: "category", badges: "badge", probes: "probe", awards: "award", overrides: "override" };
+const KIND_ROUTES: Record<string, Kind> = { categories: "category", editions: "edition", badges: "badge", probes: "probe", awards: "award", overrides: "override" };
 
 /** Which of these changes the user may not make, as messages; empty when all are allowed. */
 export function forbiddenChanges(user: User, changes: Change[]): string[] {
@@ -220,7 +228,7 @@ app.put("/v1/admin/entries/:kind/:id", reviewer, async (c) => {
 });
 
 /** Badges, probes and awards are retired, not deleted: Lilejka may hold progress against
- * them. Categories and overrides are deleted outright. */
+ * them. Categories, editions and overrides are deleted outright, once nothing points at them. */
 app.delete("/v1/admin/entries/:kind/:id", reviewer, async (c) => {
   const kind = KIND_ROUTES[c.req.param("kind")!];
   if (!kind) return c.json({ error: "not_found" }, 404);
@@ -234,9 +242,14 @@ app.delete("/v1/admin/entries/:kind/:id", reviewer, async (c) => {
     if (user.role !== "owner") return c.json({ error: "forbidden", message: "Only owners delete categories." }, 403);
     if (catalog.badges.some((b) => b.categories.includes(id))) return c.json({ error: "in_use", message: "Badges still use this category." }, 409);
   }
+  if (kind === "edition") {
+    if (!canEditKrai(user, entryKrai(kind, existing))) return c.json({ error: "forbidden" }, 403);
+    // Retired probes count too: saving one again would fail on the edition it names.
+    if (catalog.probes.some((p) => p.edition === id)) return c.json({ error: "in_use", message: "Probes still belong to this edition." }, 409);
+  }
   if (kind === "override" && !canEditKrai(user, (existing as Override).krai)) return c.json({ error: "forbidden" }, 403);
 
-  if (kind === "category" || kind === "override") {
+  if (kind === "category" || kind === "edition" || kind === "override") {
     await c.env.DB.batch([...deleteStatements(c.env, kind, id, existing, user.email), bumpRevision(c.env)]);
     return c.json({ status: "deleted" });
   }

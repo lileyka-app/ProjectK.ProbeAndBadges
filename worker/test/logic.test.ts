@@ -64,6 +64,62 @@ describe("validate", () => {
     expect(validate(contribution, new Set(["a1.svg"]), base()).issues.map((i) => i.message)).toContainEqual(expect.stringContaining("already belongs to krai 'ua'"));
   });
 
+  it("lets a new edition stand beside the old one at the same places", () => {
+    const contribution = normalizeBundle({
+      editions: [{ id: "upyu-2026", title: "Оновлена проба (2026)", ulad: "upyu", krai: "ua" }],
+      probes: [
+        { id: "znak-2026", title: "Знак прихильника", krai: "ua", edition: "upyu-2026", order: 0, status: "trial" },
+        { id: "probe-1-2026", title: "Перша проба", krai: "ua", edition: "upyu-2026", order: 1, status: "trial", points: [{ id: "probe-1-2026-1", text: "Знає закон", level: "knows", competencies: ["hromadianska"] }] },
+      ],
+    });
+    expect(checkFields({ schemaVersion: 2, editions: contribution.editions, probes: contribution.probes })).toEqual([]);
+    expect(validate(contribution, new Set(), base()).issues).toEqual([]);
+  });
+
+  it("wants every edition a probe names to exist, for the probe's own ulad and krai", () => {
+    const editions = [
+      { id: "upyu-2026", title: "Оновлена проба (2026)", ulad: "upyu", krai: "ua" },
+      { id: "usp-2026", title: "Нова", ulad: "usp", krai: "ua" },
+    ];
+    const probe = (edition: string, krai = "ua") => ({ id: `p-${edition}-${krai}`, title: "x", krai, edition, order: 1 });
+    const contribution = normalizeBundle({ editions, probes: [probe("nemaie"), probe("usp-2026"), probe("upyu-2026", "cz")] });
+    const messages = validate(contribution, new Set(), base()).issues.map((i) => i.message);
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Unknown edition 'nemaie'"),
+        expect.stringContaining("is for usp, the probe for upyu"),
+        expect.stringContaining("belongs to krai 'ua', the probe to 'cz'"),
+      ]),
+    );
+  });
+
+  it("renames an edition on its own, but will not move it away from its stored probes", () => {
+    const stored = normalizeBundle({
+      ...base(),
+      editions: [{ id: "upyu-2026", title: "Нова програма", ulad: "upyu", krai: "ua" }],
+      probes: [...base().probes, { id: "probe-1-2026", title: "Перша", krai: "ua", edition: "upyu-2026", order: 1 }],
+    });
+    const renamed = normalizeBundle({ editions: [{ id: "upyu-2026", title: "Оновлена проба (2026)", ulad: "upyu", krai: "ua" }] });
+    expect(validate(renamed, new Set(), stored).valid).toBe(true);
+    const moved = normalizeBundle({ editions: [{ id: "upyu-2026", title: "Оновлена проба (2026)", ulad: "usp", krai: "ua" }] });
+    expect(validate(moved, new Set(), stored).issues.map((i) => i.message)).toContainEqual(expect.stringContaining("Probe probe-1-2026 (upyu, ua) belongs to this edition"));
+  });
+
+  it("refuses two live probes at one place of one edition", () => {
+    const contribution = normalizeBundle({ probes: [{ id: "probe-1-copy", title: "Ще одна", krai: "ua" }] });
+    expect(validate(contribution, new Set(), base()).issues.map((i) => i.message)).toContainEqual(expect.stringContaining("Probe probe-1 already stands at 0"));
+    const retired = normalizeBundle({ probes: [{ id: "probe-1-copy", title: "Ще одна", krai: "ua", status: "retired" }] });
+    expect(validate(retired, new Set(), base()).valid).toBe(true);
+  });
+
+  it("checks a point's level and competencies", () => {
+    const contribution = normalizeBundle({
+      probes: [{ id: "probe-x", title: "x", krai: "ua", edition: "Upyu 2026", order: 5, points: [{ id: "probe-x-1", text: "x", level: "masters" as never, competencies: ["a", "a"] }] }],
+    });
+    const paths = validate(contribution, new Set(), base()).issues.map((i) => i.path);
+    expect(paths).toEqual(expect.arrayContaining(["probes[0].edition", "probes[0].points[0].level", "probes[0].points[0].competencies"]));
+  });
+
   it.each(["<svg><script>alert(1)</script></svg>", '<svg><rect onload="x()"/></svg>', '<svg><image href="https://evil.example/x.png"/></svg>'])("rejects active SVG %s", (s) => {
     expect(checkImage("x.svg", new TextEncoder().encode(s)).some((i) => i.severity === "error")).toBe(true);
   });

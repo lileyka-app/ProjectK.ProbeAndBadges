@@ -16,6 +16,7 @@ public sealed record CatalogBundle
     public BundleSource? Source { get; init; }
 
     public List<CatalogCategory> Categories { get; init; } = [];
+    public List<ProbeEdition> Editions { get; init; } = [];
     public List<BadgeDefinition> Badges { get; init; } = [];
     public List<ProbeDefinition> Probes { get; init; } = [];
     public List<AwardDefinition> Awards { get; init; } = [];
@@ -101,6 +102,14 @@ public sealed record ProbeDefinition
     public required string Title { get; init; }
     public string Ulad { get; init; } = CatalogCodes.UladYouth;
     public string? Krai { get; init; }
+
+    /// <summary>
+    /// Id of the <see cref="ProbeEdition"/>, e.g. "upyu-2026". Two editions run side by side while a krai
+    /// moves over, and <see cref="Order"/> counts within one. Probes from before editions were named
+    /// leave it out, and together they are one edition too.
+    /// </summary>
+    public string? Edition { get; init; }
+
     public int Order { get; init; }
     public string Status { get; init; } = CatalogCodes.StatusApproved;
     public ImageSet Images { get; init; } = new();
@@ -108,6 +117,22 @@ public sealed record ProbeDefinition
 
     /// <summary>Points that belong to no section.</summary>
     public List<ProbePoint> Points { get; init; } = [];
+}
+
+/// <summary>
+/// An edition of a ulad's probes and the name people see for it, e.g. "upyu-2026" → "Оновлена
+/// проба (2026)". Probes join it through <see cref="ProbeDefinition.Edition"/>. The edition from
+/// before editions were named has no entry: Lilejka names it itself.
+/// </summary>
+public sealed record ProbeEdition
+{
+    public required string Id { get; init; }
+
+    /// <summary>Shown to people as it is.</summary>
+    public required string Title { get; init; }
+
+    public string Ulad { get; init; } = CatalogCodes.UladYouth;
+    public string? Krai { get; init; }
 }
 
 public sealed record ProbeSection
@@ -127,6 +152,13 @@ public sealed record ProbePoint
     public required string Id { get; init; }
 
     public required string Text { get; init; }
+
+    /// <summary>How deep the point goes in the 2026 УПЮ programme: one of
+    /// <see cref="CatalogCodes.PointLevels"/>. Older probes leave it out.</summary>
+    public string? Level { get; init; }
+
+    /// <summary>Ids of the competences the point builds.</summary>
+    public List<string>? Competencies { get; init; }
 }
 
 /// <summary>
@@ -194,6 +226,10 @@ public static class CatalogCodes
     /// <summary>УПП (пташата), УПН (новацтво), УПЮ (юнацтво), УСП (старші пластуни), УПС (сеніори).</summary>
     public static readonly IReadOnlySet<string> Ulady =
         new HashSet<string>(StringComparer.Ordinal) { "upp", "upn", UladYouth, "usp", "ups" };
+
+    /// <summary>Знає (tell about it), вміє (do it once or twice), практикує (do it with ease).</summary>
+    public static readonly IReadOnlySet<string> PointLevels =
+        new HashSet<string>(StringComparer.Ordinal) { "knows", "can", "practises" };
 
     public const string TargetBadge = "badge";
     public const string TargetProbe = "probe";

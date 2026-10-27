@@ -42,6 +42,109 @@ public class ValidationTests
     }
 
     [Fact]
+    public void NewEdition_StandsBesideTheOldOne_AtTheSamePlaces()
+    {
+        var contribution = new CatalogBundle
+        {
+            Editions = [new ProbeEdition { Id = "upyu-2026", Title = "Оновлена проба (2026)", Krai = "ua" }],
+            Probes =
+            [
+                new ProbeDefinition { Id = "znak-2026", Title = "Знак прихильника", Krai = "ua", Edition = "upyu-2026", Order = 0, Status = "trial" },
+                new ProbeDefinition
+                {
+                    Id = "probe-1-2026",
+                    Title = "Перша проба",
+                    Krai = "ua",
+                    Edition = "upyu-2026",
+                    Order = 1,
+                    Status = "trial",
+                    Points = [new ProbePoint { Id = "probe-1-2026-1", Text = "Знає закон", Level = "knows", Competencies = ["hromadianska"] }],
+                },
+            ],
+        };
+
+        var report = CatalogValidator.Validate(contribution, new HashSet<string>(), Base());
+
+        Assert.Empty(report.Issues);
+    }
+
+    [Fact]
+    public void Probe_NamesAnEditionThatExists_ForItsOwnUladAndKrai()
+    {
+        ProbeDefinition Probe(string edition, string krai = "ua") => new() { Id = $"p-{edition}-{krai}", Title = "x", Krai = krai, Edition = edition, Order = 1 };
+        var contribution = new CatalogBundle
+        {
+            Editions =
+            [
+                new ProbeEdition { Id = "upyu-2026", Title = "Оновлена проба (2026)", Krai = "ua" },
+                new ProbeEdition { Id = "usp-2026", Title = "Нова", Ulad = "usp", Krai = "ua" },
+            ],
+            Probes = [Probe("nemaie"), Probe("usp-2026"), Probe("upyu-2026", "cz")],
+        };
+
+        var messages = CatalogValidator.Validate(contribution, new HashSet<string>(), Base()).Errors.Select(e => e.Message).ToList();
+
+        Assert.Contains(messages, m => m.Contains("Unknown edition 'nemaie'"));
+        Assert.Contains(messages, m => m.Contains("is for usp, the probe for upyu"));
+        Assert.Contains(messages, m => m.Contains("belongs to krai 'ua', the probe to 'cz'"));
+    }
+
+    [Fact]
+    public void Edition_IsRenamedOnItsOwn_ButNotMovedAwayFromItsStoredProbes()
+    {
+        var stored = Base() with
+        {
+            Editions = [new ProbeEdition { Id = "upyu-2026", Title = "Нова програма", Krai = "ua" }],
+            Probes = [.. Base().Probes, new ProbeDefinition { Id = "probe-1-2026", Title = "Перша", Krai = "ua", Edition = "upyu-2026", Order = 1 }],
+        };
+        var renamed = new ProbeEdition { Id = "upyu-2026", Title = "Оновлена проба (2026)", Krai = "ua" };
+
+        var rename = CatalogValidator.Validate(new CatalogBundle { Editions = [renamed] }, new HashSet<string>(), stored);
+        var move = CatalogValidator.Validate(new CatalogBundle { Editions = [renamed with { Ulad = "usp" }] }, new HashSet<string>(), stored);
+
+        Assert.True(rename.IsValid, string.Join('\n', rename.Errors));
+        Assert.Contains(move.Errors, e => e.Message.Contains("Probe probe-1-2026 (upyu, ua) belongs to this edition"));
+    }
+
+    [Fact]
+    public void TwoLiveProbes_MayNotShareAPlaceInOneEdition()
+    {
+        var copy = new ProbeDefinition { Id = "probe-1-copy", Title = "Ще одна", Krai = "ua" };
+
+        var clash = CatalogValidator.Validate(new CatalogBundle { Probes = [copy] }, new HashSet<string>(), Base());
+        var retired = CatalogValidator.Validate(new CatalogBundle { Probes = [copy with { Status = "retired" }] }, new HashSet<string>(), Base());
+
+        Assert.Contains(clash.Errors, e => e.Message.Contains("Probe probe-1 already stands at 0"));
+        Assert.True(retired.IsValid, string.Join('\n', retired.Errors));
+    }
+
+    [Fact]
+    public void Point_LevelAndCompetencies_AreChecked()
+    {
+        var contribution = new CatalogBundle
+        {
+            Probes =
+            [
+                new ProbeDefinition
+                {
+                    Id = "probe-x",
+                    Title = "x",
+                    Krai = "ua",
+                    Edition = "Upyu 2026",
+                    Order = 5,
+                    Points = [new ProbePoint { Id = "probe-x-1", Text = "x", Level = "masters", Competencies = ["a", "a"] }],
+                },
+            ],
+        };
+
+        var paths = CatalogValidator.Validate(contribution, new HashSet<string>(), Base()).Errors.Select(e => e.Path).ToList();
+
+        Assert.Contains("probes[0].edition", paths);
+        Assert.Contains("probes[0].points[0].level", paths);
+        Assert.Contains("probes[0].points[0].competencies", paths);
+    }
+
+    [Fact]
     public void Contribution_MayOverrideBaseItems_WithKraiPrefixedIds()
     {
         var contribution = new CatalogBundle

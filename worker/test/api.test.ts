@@ -167,4 +167,18 @@ describe("catalog service", () => {
     expect(after.revision).toBeGreaterThan(before);
     expect(after.badges[0].requirements[0].text).toBe("Прочитати дві п'єси.");
   });
+
+  it("names an edition, serves it to its krai, and keeps it while probes belong to it", async () => {
+    const edition = { id: "upyu-2026", title: "Оновлена проба (2026)", ulad: "upyu", krai: "ua" };
+    const probe = { id: "probe-1-2026", title: "Перша проба", krai: "ua", edition: "upyu-2026", order: 1, status: "trial" };
+    expect((await call("/v1/admin/entries/probes/probe-1-2026", { method: "PUT", as: OWNER, json: probe })).status).toBe(422);
+    expect((await call("/v1/admin/entries/editions/upyu-2026", { method: "PUT", as: OWNER, json: edition })).status).toBe(200);
+    expect((await call("/v1/admin/entries/probes/probe-1-2026", { method: "PUT", as: OWNER, json: probe })).status).toBe(200);
+
+    expect((await json(await call("/v1/catalog?krai=ua"))).editions).toEqual([edition]);
+    expect((await json(await call("/v1/catalog?krai=pl"))).editions).toEqual([]);
+    expect(await json(await call("/v1/editions/upyu-2026"))).toEqual(edition);
+
+    expect((await call("/v1/admin/entries/editions/upyu-2026", { method: "DELETE", as: OWNER })).status).toBe(409);
+  });
 });

@@ -68,6 +68,7 @@ public static partial class CatalogValidator
         var awardIds = Ids(bundle.Awards.Select(a => a.Id), reference?.Awards.Select(a => a.Id));
 
         CheckUnique(issues, "categories", bundle.Categories.Select(c => c.Id));
+        CheckUnique(issues, "editions", bundle.Editions.Select(p => p.Id));
         CheckUnique(issues, "badges", bundle.Badges.Select(b => b.Id));
         CheckUnique(issues, "probes", bundle.Probes.Select(p => p.Id));
         CheckUnique(issues, "awards", bundle.Awards.Select(a => a.Id));
@@ -78,6 +79,14 @@ public static partial class CatalogValidator
             var path = $"categories[{i}]";
             RequireSlug(issues, path + ".id", category.Id);
             RequireText(issues, path + ".title", category.Title);
+        }
+
+        // The bundle's own editions win over stored ones with the same id: that is how one is renamed.
+        var editions = new Dictionary<string, ProbeEdition>(StringComparer.Ordinal);
+        foreach (var edition in (reference?.Editions ?? []).Concat(bundle.Editions)) editions[edition.Id] = edition;
+        for (var i = 0; i < bundle.Editions.Count; i++)
+        {
+            ValidateEdition(issues, bundle, bundle.Editions[i], $"editions[{i}]", reference);
         }
 
         for (var i = 0; i < bundle.Badges.Count; i++)
@@ -97,8 +106,10 @@ public static partial class CatalogValidator
 
         for (var i = 0; i < bundle.Probes.Count; i++)
         {
-            ValidateProbe(issues, bundle, bundle.Probes[i], $"probes[{i}]", pointIds, availableImages, reference);
+            ValidateProbe(issues, bundle, bundle.Probes[i], $"probes[{i}]", pointIds, editions, availableImages, reference);
         }
+
+        ValidateProbeOrders(issues, bundle, reference);
 
         for (var i = 0; i < bundle.Awards.Count; i++)
         {
@@ -169,6 +180,7 @@ public static partial class CatalogValidator
         ProbeDefinition probe,
         string path,
         HashSet<string> pointIds,
+        IReadOnlyDictionary<string, ProbeEdition> editions,
         IReadOnlySet<string>? availableImages,
         CatalogBundle? reference)
     {
@@ -176,6 +188,8 @@ public static partial class CatalogValidator
         RequireText(issues, path + ".title", probe.Title);
         if (!CatalogCodes.Ulady.Contains(probe.Ulad)) issues.Add(CatalogIssue.Error(path + ".ulad", $"Unknown ulad '{probe.Ulad}'."));
         ValidateKraiAndOwnership(issues, bundle, reference, path, probe.Krai, reference?.Probes.FirstOrDefault(p => p.Id == probe.Id)?.Krai);
+        if (probe.Edition is not null) ValidateProbeEdition(issues, bundle, probe, path + ".edition", editions.GetValueOrDefault(probe.Edition));
+        if (probe.Order < 0) issues.Add(CatalogIssue.Error(path + ".order", "Order is a whole number from 0; знак прихильника goes first with 0."));
         ValidateStatus(issues, path, probe.Status);
         ValidateImages(issues, path, probe.Images, availableImages, required: false);
         CheckUnique(issues, path + ".sections", probe.Sections.Select(s => s.Code));
@@ -192,6 +206,41 @@ public static partial class CatalogValidator
         ValidatePoints(issues, path + ".points", probe.Points, pointIds);
     }
 
+    private static void ValidateEdition(List<CatalogIssue> issues, CatalogBundle bundle, ProbeEdition edition, string path, CatalogBundle? reference)
+    {
+        RequireSlug(issues, path + ".id", edition.Id);
+        RequireText(issues, path + ".title", edition.Title);
+        if (!CatalogCodes.Ulady.Contains(edition.Ulad)) issues.Add(CatalogIssue.Error(path + ".ulad", $"Unknown ulad '{edition.Ulad}'."));
+        ValidateKraiAndOwnership(issues, bundle, reference, path, edition.Krai, reference?.Editions.FirstOrDefault(p => p.Id == edition.Id)?.Krai);
+
+        // Stored probes the bundle does not resend have to keep fitting the edition they name.
+        var resent = bundle.Probes.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        var krai = edition.Krai ?? bundle.Source?.Krai;
+        foreach (var probe in (reference?.Probes ?? []).Where(p => p.Edition == edition.Id && !resent.Contains(p.Id)))
+        {
+            if (probe.Ulad != edition.Ulad || probe.Krai != krai)
+            {
+                issues.Add(CatalogIssue.Error(path, $"Probe {probe.Id} ({probe.Ulad}, {probe.Krai ?? "—"}) belongs to this edition; move it first."));
+            }
+        }
+    }
+
+    /// <summary>A probe names an edition that exists, and one of its own ulad and krai.</summary>
+    private static void ValidateProbeEdition(List<CatalogIssue> issues, CatalogBundle bundle, ProbeDefinition probe, string path, ProbeEdition? edition)
+    {
+        RequireSlug(issues, path, probe.Edition!);
+        if (edition is null)
+        {
+            issues.Add(CatalogIssue.Error(path, $"Unknown edition '{probe.Edition}'; add it under editions with the title people see."));
+            return;
+        }
+
+        var editionKrai = edition.Krai ?? bundle.Source?.Krai;
+        var probeKrai = probe.Krai ?? bundle.Source?.Krai;
+        if (edition.Ulad != probe.Ulad) issues.Add(CatalogIssue.Error(path, $"Edition '{edition.Id}' is for {edition.Ulad}, the probe for {probe.Ulad}."));
+        if (editionKrai != probeKrai) issues.Add(CatalogIssue.Error(path, $"Edition '{edition.Id}' belongs to krai '{editionKrai ?? "—"}', the probe to '{probeKrai ?? "—"}'."));
+    }
+
     private static void ValidatePoints(List<CatalogIssue> issues, string path, List<ProbePoint> points, HashSet<string> pointIds)
     {
         for (var i = 0; i < points.Count; i++)
@@ -201,6 +250,43 @@ public static partial class CatalogValidator
             if (!pointIds.Add(points[i].Id))
             {
                 issues.Add(CatalogIssue.Error($"{path}[{i}].id", $"Point id '{points[i].Id}' is used twice; point ids are unique across all probes."));
+            }
+
+            if (points[i].Level is { } level && !CatalogCodes.PointLevels.Contains(level))
+            {
+                issues.Add(CatalogIssue.Error($"{path}[{i}].level", $"Unknown level '{level}'; use one of {string.Join(", ", CatalogCodes.PointLevels)}."));
+            }
+
+            if (points[i].Competencies is { } competencies)
+            {
+                foreach (var competency in competencies) RequireSlug(issues, $"{path}[{i}].competencies", competency);
+                CheckUnique(issues, $"{path}[{i}].competencies", competencies);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Lilejka opens a person's probes one after another by order, so two live probes of the same
+    /// ulad, krai and edition may not share a place. Retired ones are out of the line already.
+    /// </summary>
+    private static void ValidateProbeOrders(List<CatalogIssue> issues, CatalogBundle bundle, CatalogBundle? reference)
+    {
+        static string Place(ProbeDefinition p) => $"{p.Ulad}|{p.Krai}|{p.Edition}|{p.Order}";
+
+        var own = bundle.Probes.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        var taken = new Dictionary<string, ProbeDefinition>(StringComparer.Ordinal);
+        foreach (var probe in (reference?.Probes ?? []).Where(p => !own.Contains(p.Id) && p.Status != CatalogCodes.StatusRetired))
+        {
+            taken[Place(probe)] = probe;
+        }
+
+        for (var i = 0; i < bundle.Probes.Count; i++)
+        {
+            var probe = bundle.Probes[i];
+            if (probe.Status == CatalogCodes.StatusRetired) continue;
+            if (!taken.TryAdd(Place(probe), probe))
+            {
+                issues.Add(CatalogIssue.Error($"probes[{i}].order", $"Probe {taken[Place(probe)].Id} already stands at {probe.Order} in this edition; give each probe its own place."));
             }
         }
     }

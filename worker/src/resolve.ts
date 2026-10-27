@@ -19,6 +19,7 @@ export function resolve(catalog: Bundle, krai: string | null): Bundle {
     schemaVersion: catalog.schemaVersion,
     source: { ...catalog.source, krai },
     categories: catalog.categories,
+    editions: catalog.editions.filter((p) => !krai || p.krai === krai),
     badges: catalog.badges
       .filter(visible)
       .map((b) => applyBadge(b, find("badge", b.id)))
@@ -92,7 +93,7 @@ export function merge(catalog: Bundle, contribution: Bundle): { catalog: Bundle;
   const changes: Change[] = [];
   const result: Bundle = { ...catalog };
 
-  const kinds: Kind[] = ["category", "badge", "probe", "award", "override"];
+  const kinds: Kind[] = ["category", "edition", "badge", "probe", "award", "override"];
   for (const kind of kinds) {
     const list = [...listOf(catalog, kind)];
     const index = new Map(list.map((e, i) => [entryId(kind, e), i]));
@@ -118,7 +119,7 @@ export function merge(catalog: Bundle, contribution: Bundle): { catalog: Bundle;
 }
 
 function listKey(kind: Kind): string {
-  return { category: "categories", badge: "badges", probe: "probes", award: "awards", override: "overrides" }[kind];
+  return { category: "categories", edition: "editions", badge: "badges", probe: "probes", award: "awards", override: "overrides" }[kind];
 }
 
 export { overrideKey };

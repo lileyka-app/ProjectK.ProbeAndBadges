@@ -42,9 +42,17 @@ export interface Badge {
   notes: string[];
 }
 
+/** How deep a point goes in the 2026 УПЮ programme: tell about it, do it once or twice, do it
+ * with ease. Older probes leave it out. */
+export const POINT_LEVELS = ["knows", "can", "practises"] as const;
+export type PointLevel = (typeof POINT_LEVELS)[number];
+
 export interface ProbePoint {
   id: string;
   text: string;
+  level?: PointLevel | null;
+  /** Ids of the competences the point builds; the programme explains every point through them. */
+  competencies?: string[] | null;
 }
 
 export interface ProbeSection {
@@ -59,11 +67,29 @@ export interface Probe {
   title: string;
   ulad: string;
   krai?: string | null;
+  /**
+   * Id of the `Edition` the probe belongs to, e.g. "upyu-2026". Two editions run side
+   * by side while a krai moves over, and `order` counts within one. Probes from before editions
+   * were named leave it out, and together they are one edition too.
+   */
+  edition?: string | null;
   order: number;
   status: Status;
   images: ImageSet;
   sections: ProbeSection[];
   points: ProbePoint[];
+}
+
+/**
+ * An edition of a ulad's probes and the name people see for it, e.g. "upyu-2026" → "Оновлена
+ * проба (2026)". Probes join it through `edition`. The edition from before editions were named
+ * has no entry: Lilejka names it itself.
+ */
+export interface Edition {
+  id: string;
+  title: string;
+  ulad: string;
+  krai?: string | null;
 }
 
 /** Відзначення, відзнака or вишкіл: `group` tells УПЮ відзначення, КВ, ЗБ, ЛШ, ШБ apart. */
@@ -112,6 +138,7 @@ export interface Bundle {
   schemaVersion: number;
   source?: BundleSource | null;
   categories: Category[];
+  editions: Edition[];
   badges: Badge[];
   probes: Probe[];
   awards: Award[];
@@ -119,10 +146,10 @@ export interface Bundle {
 }
 
 /** Rows in D1 are one JSON document per item; `kind` says which list it belongs to. */
-export const KINDS = ["category", "badge", "probe", "award", "override"] as const;
+export const KINDS = ["category", "edition", "badge", "probe", "award", "override"] as const;
 export type Kind = (typeof KINDS)[number];
 
-export type Entry = Category | Badge | Probe | Award | Override;
+export type Entry = Category | Edition | Badge | Probe | Award | Override;
 
 export function overrideKey(o: Pick<Override, "krai" | "target">): string {
   return `${o.krai}|${o.target}`;
@@ -138,11 +165,12 @@ export function entryKrai(kind: Kind, entry: Entry): string | null {
 }
 
 export function emptyBundle(): Bundle {
-  return { schemaVersion: SCHEMA_VERSION, categories: [], badges: [], probes: [], awards: [], overrides: [] };
+  return { schemaVersion: SCHEMA_VERSION, categories: [], editions: [], badges: [], probes: [], awards: [], overrides: [] };
 }
 
 const LISTS: Record<Kind, keyof Bundle> = {
   category: "categories",
+  edition: "editions",
   badge: "badges",
   probe: "probes",
   award: "awards",
@@ -163,6 +191,7 @@ export function normalizeBundle(raw: unknown): Bundle {
     schemaVersion: b.schemaVersion ?? SCHEMA_VERSION,
     source: b.source ?? null,
     categories: (b.categories ?? []).map((c) => ({ ...c })),
+    editions: (b.editions ?? []).map(normalizeEdition),
     badges: (b.badges ?? []).map(normalizeBadge),
     probes: (b.probes ?? []).map(normalizeProbe),
     awards: (b.awards ?? []).map(normalizeAward),
@@ -172,6 +201,8 @@ export function normalizeBundle(raw: unknown): Bundle {
 
 export function normalizeEntry(kind: Kind, raw: unknown): Entry {
   switch (kind) {
+    case "edition":
+      return normalizeEdition(raw as Edition);
     case "badge":
       return normalizeBadge(raw as Badge);
     case "probe":
@@ -183,6 +214,10 @@ export function normalizeEntry(kind: Kind, raw: unknown): Entry {
     default:
       return { ...(raw as Category) };
   }
+}
+
+function normalizeEdition(p: Partial<Edition>): Edition {
+  return { ...p, id: p.id!, title: p.title!, ulad: p.ulad ?? "upyu" };
 }
 
 function normalizeBadge(b: Partial<Badge>): Badge {

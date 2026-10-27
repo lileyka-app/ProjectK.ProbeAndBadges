@@ -21,6 +21,7 @@ export interface PublicCatalog {
   revision: number;
   krai: string | null;
   categories: Bundle["categories"];
+  editions: Bundle["editions"];
   badges: PublicBadge[];
   probes: PublicProbe[];
   awards: PublicAward[];
@@ -40,6 +41,7 @@ export function toPublic(resolved: Bundle, rev: number, krai: string | null, ima
     revision: rev,
     krai,
     categories: resolved.categories,
+    editions: resolved.editions,
     badges: resolved.badges.map(({ notes: _notes, ...b }) => ({ ...b, images: urls(b.images) })),
     probes: resolved.probes.map((p) => ({ ...p, images: urls(p.images) })),
     awards: resolved.awards.map((a) => ({ ...a, images: urls(a.images) })),
@@ -48,7 +50,7 @@ export function toPublic(resolved: Bundle, rev: number, krai: string | null, ima
 
 /** Bump when the shape or the filtering of the public catalog changes: cached copies are keyed by
  * revision only, so without this a deploy would keep serving the old result until the next edit. */
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 
 const memo = new Map<string, { body: string; parsed: PublicCatalog }>();
 

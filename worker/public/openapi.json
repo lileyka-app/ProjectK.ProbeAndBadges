@@ -10,6 +10,7 @@
     { "name": "Каталог", "description": "Увесь каталог одним документом і спеціалізації." },
     { "name": "Вмілості" },
     { "name": "Проби" },
+    { "name": "Редакції проб", "description": "Редакції проб уладу й назви, під якими їх бачать люди. Проба належить до редакції полем `edition`." },
     { "name": "Відзначення", "description": "Відзначення УПЮ, а згодом КВ, ЗБ, ЛШ, ШБ та інші відзнаки. Групу задає поле `group`." },
     { "name": "Зображення" }
   ],
@@ -157,6 +158,44 @@
         }
       }
     },
+    "/v1/editions": {
+      "get": {
+        "tags": ["Редакції проб"],
+        "operationId": "listEditions",
+        "summary": "Список редакцій проб",
+        "description": "Редакції проб з назвами. Звичайної проби (без `edition`) тут немає.",
+        "parameters": [{ "$ref": "#/components/parameters/krai" }, { "$ref": "#/components/parameters/ulad" }, { "$ref": "#/components/parameters/ifNoneMatch" }],
+        "responses": {
+          "200": {
+            "description": "Редакції.",
+            "headers": { "ETag": { "$ref": "#/components/headers/ETag" } },
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Edition" } } } }
+          },
+          "304": { "$ref": "#/components/responses/NotModified" }
+        }
+      }
+    },
+    "/v1/editions/{id}": {
+      "get": {
+        "tags": ["Редакції проб"],
+        "operationId": "getEdition",
+        "summary": "Одна редакція проб",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "description": "Id редакції.", "schema": { "type": "string" }, "example": "upyu-2026" },
+          { "$ref": "#/components/parameters/krai" },
+          { "$ref": "#/components/parameters/ifNoneMatch" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Редакція.",
+            "headers": { "ETag": { "$ref": "#/components/headers/ETag" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Edition" } } }
+          },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/v1/awards": {
       "get": {
         "tags": ["Відзначення"],
@@ -281,12 +320,13 @@
     "schemas": {
       "Catalog": {
         "type": "object",
-        "required": ["schemaVersion", "revision", "krai", "categories", "badges", "probes", "awards"],
+        "required": ["schemaVersion", "revision", "krai", "categories", "editions", "badges", "probes", "awards"],
         "properties": {
           "schemaVersion": { "type": "integer", "description": "Версія формату. Зараз 2.", "example": 2 },
           "revision": { "type": "integer", "description": "Номер ревізії. Зростає з кожною зміною в каталозі.", "example": 41 },
           "krai": { "type": ["string", "null"], "description": "Край із запиту або `null`.", "example": null },
           "categories": { "type": "array", "items": { "$ref": "#/components/schemas/Category" } },
+          "editions": { "type": "array", "description": "Редакції проб краю. Звичайна проба, без поля `edition`, тут не стоїть.", "items": { "$ref": "#/components/schemas/Edition" } },
           "badges": { "type": "array", "items": { "$ref": "#/components/schemas/Badge" } },
           "probes": { "type": "array", "items": { "$ref": "#/components/schemas/Probe" } },
           "awards": { "type": "array", "items": { "$ref": "#/components/schemas/Award" } }
@@ -298,6 +338,16 @@
         "properties": {
           "id": { "type": "string", "example": "alpinizm-ta-skelelazinnia" },
           "title": { "type": "string", "example": "Альпінізм та скелелазіння" }
+        }
+      },
+      "Edition": {
+        "type": "object",
+        "required": ["id", "title", "ulad"],
+        "properties": {
+          "id": { "type": "string", "description": "Id редакції; на нього посилається `edition` проби.", "example": "upyu-2026" },
+          "title": { "type": "string", "description": "Назва редакції, як її показують людям.", "example": "Оновлена проба (2026)" },
+          "ulad": { "type": "string", "description": "Улад, якому належать проби редакції.", "example": "upyu" },
+          "krai": { "type": ["string", "null"], "description": "Край редакції.", "example": "ua" }
         }
       },
       "Badge": {
@@ -345,8 +395,13 @@
           "title": { "type": "string", "example": "Перша проба (Скобине крило)" },
           "ulad": { "type": "string", "example": "upyu" },
           "krai": { "type": "string", "example": "ua" },
-          "order": { "type": "integer", "description": "Порядок показу.", "example": 1 },
-          "status": { "type": "string", "enum": ["approved", "trial"] },
+          "edition": {
+            "type": ["string", "null"],
+            "description": "Id редакції (`Edition`), до якої належить проба. Дві редакції можуть іти поруч, поки край переходить на нову. Проби без поля — звичайна проба, та, що була до редакцій.",
+            "example": "upyu-2026"
+          },
+          "order": { "type": "integer", "description": "Місце проби в межах уладу, краю й редакції: проби відкриваються одна за одною в цьому порядку. Знак прихильника — 0.", "example": 1 },
+          "status": { "type": "string", "enum": ["approved", "trial"], "description": "trial — проба в апробації." },
           "images": { "$ref": "#/components/schemas/Images" },
           "sections": { "type": "array", "items": { "$ref": "#/components/schemas/ProbeSection" } },
           "points": { "type": "array", "items": { "$ref": "#/components/schemas/ProbePoint" }, "description": "Точки поза розділами." }
@@ -367,7 +422,13 @@
         "required": ["id", "text"],
         "properties": {
           "id": { "type": "string", "description": "Унікальний серед усіх проб і не змінюється.", "example": "probe-1-section-a-point-1" },
-          "text": { "type": "string", "example": "Знає на пам’ять і пояснить Три Головні Обов’язки Пластуна." }
+          "text": { "type": "string", "example": "Знає на пам’ять і пояснить Три Головні Обов’язки Пластуна." },
+          "level": {
+            "type": ["string", "null"],
+            "enum": ["knows", "can", "practises", null],
+            "description": "Глибина точки в оновленій програмі: знає (розповісти, поділитись), вміє (зробити 1–2 рази), практикує (робити легко). У старих пробах поля немає."
+          },
+          "competencies": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Ідентифікатори компетентностей, які розвиває точка." }
         }
       },
       "Award": {
