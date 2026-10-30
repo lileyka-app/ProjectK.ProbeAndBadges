@@ -19,6 +19,7 @@ public sealed record CatalogBundle
     public List<ProbeEdition> Editions { get; init; } = [];
     public List<BadgeDefinition> Badges { get; init; } = [];
     public List<ProbeDefinition> Probes { get; init; } = [];
+    public List<DegreeDefinition> Degrees { get; init; } = [];
     public List<AwardDefinition> Awards { get; init; } = [];
     public List<CatalogOverride> Overrides { get; init; } = [];
 }
@@ -162,6 +163,48 @@ public sealed record ProbePoint
 }
 
 /// <summary>
+/// Ступінь and the badge worn for it on the left sleeve: старший пластун, пластун сеніор праці,
+/// пластунка вірлиця, ... The men's and the women's form of a degree are two entries, because their
+/// badges differ (the sand-coloured shield goes with a пластунка's shirt); <see cref="Family"/>
+/// joins them.
+/// </summary>
+public sealed record DegreeDefinition
+{
+    /// <summary>Stable slug. Lilejka stores who holds the degree against it, so it never changes.</summary>
+    public required string Id { get; init; }
+
+    /// <summary>Joins the forms of one degree: "ups-pratsi" for сеніор праці and сеніорка праці.</summary>
+    public string? Family { get; init; }
+
+    public required string Title { get; init; }
+
+    /// <summary>Ulad that grants the degree, see <see cref="CatalogCodes.Ulady"/>.</summary>
+    public string Ulad { get; init; } = CatalogCodes.UladYouth;
+
+    public string? Krai { get; init; }
+
+    /// <summary>"male" or "female" when the entry is one form of the degree; left out when the
+    /// degree is the same for everybody.</summary>
+    public string? Gender { get; init; }
+
+    /// <summary>Place on the ulad's ladder, from 0. Forms of one degree share it, and so do side
+    /// branches such as скоб-гребець next to скоб.</summary>
+    public int Order { get; init; }
+
+    /// <summary>Other ulady whose members may keep wearing the badge instead of their own: a скоб
+    /// wears his in УСП.</summary>
+    public List<string> WornIn { get; init; } = [];
+
+    public string Status { get; init; } = CatalogCodes.StatusApproved;
+    public ImageSet Images { get; init; } = new();
+
+    /// <summary>Markdown: who grants the degree, on what conditions, how the badge looks.</summary>
+    public string? Description { get; init; }
+
+    public List<Requirement> Requirements { get; init; } = [];
+}
+
+/// <summary>
 /// Відзначення, відзнака or вишкіл with a badge: УПЮ відзначення, КВ, ЗБ, ЛШ, ШБ and whatever
 /// comes next. <see cref="Group"/> tells them apart, so a new kind needs no schema change.
 /// </summary>
@@ -169,7 +212,8 @@ public sealed record AwardDefinition
 {
     public required string Id { get; init; }
 
-    /// <summary>"upyu-vidznachennia", "kv", "zb", "lsh", "shb", ...</summary>
+    /// <summary>One ladder each: "upyu-vidznachennia", "usp-vidznachennia", "usp-pozaplastovi",
+    /// "ups-vidznachennia", "ups-pozaplastovi", "khresty", "lsh", "shb", "kv-upn", "kv-upyu", "zb", ...</summary>
     public required string Group { get; init; }
 
     public required string Title { get; init; }
@@ -191,7 +235,7 @@ public sealed record CatalogOverride
 {
     public required string Krai { get; init; }
 
-    /// <summary>"badge:{id}", "probe:{id}" or "award:{id}".</summary>
+    /// <summary>"badge:{id}", "probe:{id}", "degree:{id}" or "award:{id}".</summary>
     public required string Target { get; init; }
 
     public bool Hidden { get; init; }
@@ -231,7 +275,11 @@ public static class CatalogCodes
     public static readonly IReadOnlySet<string> PointLevels =
         new HashSet<string>(StringComparer.Ordinal) { "knows", "can", "practises" };
 
+    public static readonly IReadOnlySet<string> Genders =
+        new HashSet<string>(StringComparer.Ordinal) { "male", "female" };
+
     public const string TargetBadge = "badge";
     public const string TargetProbe = "probe";
+    public const string TargetDegree = "degree";
     public const string TargetAward = "award";
 }

@@ -3,9 +3,26 @@
 // editor notes). Links are shareable: `?krai=cz#badges/<id>`.
 
 const ULADY = { upp: "УПП", upn: "УПН", upyu: "УПЮ", usp: "УСП", ups: "УПС" };
-const GROUPS = { "upyu-vidznachennia": "Відзначення УПЮ", kv: "КВ", zb: "Золота Булава", lsh: "ЛШ", shb: "ШБ" };
+const GROUPS = {
+  "upyu-vidznachennia": "Відзначення УПЮ",
+  "usp-vidznachennia": "Відзначення УСП",
+  "usp-pozaplastovi": "Відзначення УСП поза Пластом",
+  "ups-vidznachennia": "Відзначення УПС",
+  "ups-pozaplastovi": "Відзначення УПС поза Пластом",
+  khresty: "Хрести",
+  lsh: "Лісова Школа",
+  shb: "Школа Булавних",
+  "kv-upn": "Кадра Виховників УПН",
+  "kv-upyu": "Кадра Виховників УПЮ",
+  kv: "КВ",
+  zb: "Золота Булава",
+  kvdch: "КВДЧ",
+};
+const GENDER = { male: "для пластунів", female: "для пластунок" };
+/** Degrees list the senior ulady first: the catalog has them for УСП and УПС, and the УПЮ ones they keep wearing. */
+const LADDERS = ["usp", "ups", "upyu", "upn", "upp"];
 const KRAI = { ua: "Україна", pl: "Польща", cz: "Чехія", de: "Німеччина", gb: "Велика Британія", us: "США", ca: "Канада", au: "Австралія", ar: "Аргентина" };
-const LABEL = { badges: "вмілостей", probes: "проб", awards: "відзначень" };
+const LABEL = { badges: "вмілостей", probes: "проб", degrees: "ступенів", awards: "відзначень" };
 
 const state = { catalog: null, kraiList: null, tab: "badges", krai: "" };
 const $ = (sel) => document.querySelector(sel);
@@ -26,10 +43,10 @@ async function load() {
   state.catalog = await res.json();
   if (!state.kraiList) {
     const all = state.krai ? await (await fetch("/v1/catalog")).json() : state.catalog;
-    state.kraiList = [...new Set([...all.badges, ...all.probes, ...all.awards].map((x) => x.krai).filter(Boolean))].sort();
+    state.kraiList = [...new Set([...all.badges, ...all.probes, ...(all.degrees ?? []), ...all.awards].map((x) => x.krai).filter(Boolean))].sort();
   }
   const c = state.catalog;
-  let summary = `${plural(c.badges.length, "вмілість", "вмілості", "вмілостей")} · ${plural(c.probes.length, "проба", "проби", "проб")} · ${plural(c.awards.length, "відзначення", "відзначення", "відзначень")}`;
+  let summary = `${plural(c.badges.length, "вмілість", "вмілості", "вмілостей")} · ${plural(c.probes.length, "проба", "проби", "проб")} · ${plural(c.degrees.length, "ступінь", "ступені", "ступенів")} · ${plural(c.awards.length, "відзначення", "відзначення", "відзначень")}`;
   if (state.krai) summary += ` краю ${kraiName(state.krai)}`;
   $("#summary").textContent = summary;
   fillFilters();
@@ -52,7 +69,7 @@ function fillFilters() {
     $(sel).value = [...$(sel).options].some((o) => o.value === v) ? v : "";
   };
   keep("#filter-category", `<option value="">усі</option>` + c.categories.map((k) => `<option value="${esc(k.id)}">${esc(k.title)}</option>`).join(""));
-  const ulady = new Set([...c.badges.flatMap((b) => b.ulady ?? []), ...c.probes.map((p) => p.ulad), ...c.awards.map((a) => a.ulad)].filter(Boolean));
+  const ulady = new Set([...c.badges.flatMap((b) => b.ulady ?? []), ...c.probes.map((p) => p.ulad), ...c.degrees.flatMap((d) => [d.ulad, ...d.wornIn]), ...c.awards.map((a) => a.ulad)].filter(Boolean));
   keep("#filter-ulad", `<option value="">усі</option>` + Object.keys(ULADY).filter((u) => ulady.has(u)).map((u) => `<option value="${u}">${ULADY[u]}</option>`).join(""));
 }
 
@@ -67,15 +84,16 @@ function visible() {
       (x) =>
         (!q || texts(x).some((t) => fold(t).includes(q))) &&
         (state.tab !== "badges" || !category || x.categories?.includes(category)) &&
-        (!ulad || (x.ulady ?? [x.ulad]).includes(ulad)) &&
+        (!ulad || (x.ulady ?? [x.ulad, ...(x.wornIn ?? [])]).includes(ulad)) &&
         (!status || x.status === status),
     )
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.group ?? "").localeCompare(b.group ?? "") || (a.level ?? 0) - (b.level ?? 0) || a.title.localeCompare(b.title, "uk"));
+    .sort((a, b) => (state.tab === "degrees" ? LADDERS.indexOf(a.ulad) - LADDERS.indexOf(b.ulad) : 0) || (a.order ?? 0) - (b.order ?? 0) || (a.group ?? "").localeCompare(b.group ?? "") || (a.level ?? 0) - (b.level ?? 0) || a.title.localeCompare(b.title, "uk"));
 }
 
 function subtitle(x) {
   if (state.tab === "probes") return ULADY[x.ulad] ?? x.ulad;
   if (state.tab === "awards") return GROUPS[x.group] ?? x.group;
+  if (state.tab === "degrees") return [ULADY[x.ulad] ?? x.ulad, ...x.wornIn.map((u) => `носять і в ${ULADY[u] ?? u}`)].join(" · ");
   const cats = (x.categories ?? []).map((id) => state.catalog.categories.find((k) => k.id === id)?.title).filter(Boolean);
   return [cats.join(", "), x.krai && x.krai !== "ua" ? kraiName(x.krai) : "", x.status === "trial" ? "апробаційна" : ""].filter(Boolean).join(" · ");
 }
@@ -111,6 +129,8 @@ function detailHtml(kind, x) {
     ...(x.ulady ?? (x.ulad ? [x.ulad] : [])).map((u) => `<span class="tag">${ULADY[u] ?? esc(u)}</span>`),
     ...cats.map((c) => `<span class="tag">${esc(c)}</span>`),
     x.group ? `<span class="tag">${esc(GROUPS[x.group] ?? x.group)}</span>` : "",
+    x.gender ? `<span class="tag">${GENDER[x.gender] ?? esc(x.gender)}</span>` : "",
+    ...(x.wornIn ?? []).map((u) => `<span class="tag">носять і в ${ULADY[u] ?? esc(u)}</span>`),
   ].join("");
 
   let body = "";
@@ -133,7 +153,7 @@ function detailHtml(kind, x) {
       ${img ? `<div><img class="art" alt="" src="${esc(img)}"></div>` : ""}
       <div><h2 id="detail-title">${esc(x.title)}</h2><div class="tags">${tags}</div></div>
     </div>${body}
-    <div class="modal-actions">${kind === "probes" ? "" : `<a class="btn" href="${esc(posvidkaUrl(kind, x.id))}">Посвідка</a>`}<button class="btn btn-secondary close" type="button">Закрити</button></div>`;
+    <div class="modal-actions">${kind === "probes" || kind === "degrees" ? "" : `<a class="btn" href="${esc(posvidkaUrl(kind, x.id))}">Посвідка</a>`}<button class="btn btn-secondary close" type="button">Закрити</button></div>`;
 }
 
 function posvidkaUrl(kind, id) {

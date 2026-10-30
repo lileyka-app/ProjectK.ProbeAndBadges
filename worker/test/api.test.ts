@@ -168,6 +168,24 @@ describe("catalog service", () => {
     expect(after.badges[0].requirements[0].text).toBe("Прочитати дві п'єси.");
   });
 
+  it("serves degrees, filtered by the ulad they are worn in and by gender, and retires them instead of deleting", async () => {
+    await call("/v1/admin/images/d.svg", { method: "PUT", as: OWNER, body: svg("d"), headers: { "Content-Type": "image/svg+xml" } });
+    const degree = (id: string, ulad: string, gender: string, wornIn: string[] = []) => ({
+      id, family: id.replace(/-(m|f)$/, ""), title: id, ulad, krai: "ua", gender, order: 1, wornIn, images: { color: "d.svg" },
+    });
+    for (const d of [degree("usp-sp-m", "usp", "male"), degree("usp-sp-f", "usp", "female"), degree("upyu-skob-m", "upyu", "male", ["usp"])]) {
+      expect((await call(`/v1/admin/entries/degrees/${d.id}`, { method: "PUT", as: OWNER, json: d })).status).toBe(200);
+    }
+
+    const ids = async (q: string) => ((await json(await call(`/v1/degrees${q}`))) as { id: string }[]).map((d) => d.id).sort();
+    expect(await ids("?wornIn=usp")).toEqual(["upyu-skob-m", "usp-sp-f", "usp-sp-m"]);
+    expect(await ids("?ulad=usp&gender=female")).toEqual(["usp-sp-f"]);
+    expect(((await json(await call("/v1/degrees/usp-sp-f"))) as { images: { color: string } }).images.color).toMatch(/\/v1\/images\/d\.svg/);
+
+    expect((await call("/v1/admin/entries/degrees/usp-sp-f", { method: "DELETE", as: OWNER })).status).toBe(200);
+    expect(await ids("?ulad=usp")).toEqual(["usp-sp-m"]);
+  });
+
   it("names an edition, serves it to its krai, and keeps it while probes belong to it", async () => {
     const edition = { id: "upyu-2026", title: "Оновлена проба (2026)", ulad: "upyu", krai: "ua" };
     const probe = { id: "probe-1-2026", title: "Перша проба", krai: "ua", edition: "upyu-2026", order: 1, status: "trial" };

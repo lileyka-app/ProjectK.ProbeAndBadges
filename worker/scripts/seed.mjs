@@ -27,7 +27,15 @@ const types = { svg: "image/svg+xml", png: "image/png", webp: "image/webp", jpg:
 const catalog = JSON.parse(readFileSync(join(root, "catalog.json"), "utf8"));
 const q = (v) => (v === null || v === undefined ? "NULL" : `'${String(v).replace(/'/g, "''")}'`);
 
-const lists = { category: catalog.categories, badge: catalog.badges, probe: catalog.probes, award: catalog.awards, override: catalog.overrides ?? [] };
+const lists = {
+  category: catalog.categories,
+  edition: catalog.editions ?? [],
+  badge: catalog.badges,
+  probe: catalog.probes,
+  degree: catalog.degrees ?? [],
+  award: catalog.awards,
+  override: catalog.overrides ?? [],
+};
 const sql = [];
 for (const [kind, items] of Object.entries(lists)) {
   for (const item of items ?? []) {

@@ -6,8 +6,10 @@ const KINDS = {
   badge: { plural: "badges", list: "badges", label: "Вмілість" },
   probe: { plural: "probes", list: "probes", label: "Проба" },
   edition: { plural: "editions", list: "editions", label: "Редакція проб" },
+  degree: { plural: "degrees", list: "degrees", label: "Ступінь" },
   award: { plural: "awards", list: "awards", label: "Відзначення" },
 };
+const GENDER = { male: "чоловіча форма", female: "жіноча форма" };
 const ULADY = { upp: "УПП", upn: "УПН", upyu: "УПЮ", usp: "УСП", ups: "УПС" };
 const STATUS = { approved: "затверджена", trial: "апробаційна", retired: "виведена" };
 const POINT_LEVEL = { knows: "знає", can: "вміє", practises: "практикує" };
@@ -226,6 +228,9 @@ function previewHtml(kind, x, unpublished) {
     x.status ? `<span class="tag ${x.status}">${STATUS[x.status]}</span>` : "",
     kind === "probe" ? `<span class="tag">редакція: ${esc(editionTitle(x.edition))} · №${esc(String(x.order))}</span>` : "",
     x.level ? `<span class="tag">рівень ${x.level}</span>` : "",
+    kind === "degree" ? `<span class="tag">щабель ${esc(String(x.order))}</span>` : "",
+    x.gender ? `<span class="tag">${GENDER[x.gender] ?? esc(x.gender)}</span>` : "",
+    ...(x.wornIn ?? []).map((u) => `<span class="tag">носять і в ${ULADY[u] ?? esc(u)}</span>`),
     ...(x.ulady ?? (x.ulad ? [x.ulad] : [])).map((u) => `<span class="tag">${ULADY[u] ?? u}</span>`),
     ...cats.map((c) => `<span class="tag">${esc(c)}</span>`),
     x.group ? `<span class="tag">${esc(x.group)}</span>` : "",
@@ -266,6 +271,7 @@ function template(kind) {
   const krai = state.me.krai[0] ?? "ua";
   if (kind === "badge") return { id: "", title: "", family: null, level: 1, categories: [], ulady: ["upyu"], krai, status: "trial", images: { color: null, bw: null }, prerequisites: [], requirements: [{ id: "1", text: "" }], instructorRequirements: null, author: null, updatedOn: new Date().toISOString().slice(0, 10), notes: [] };
   if (kind === "edition") return { id: "", title: "", ulad: "upyu", krai };
+  if (kind === "degree") return { id: "", family: null, title: "", ulad: "usp", krai, gender: null, order: 0, wornIn: [], status: "trial", images: { color: null, bw: null }, description: null, requirements: [] };
   if (kind === "probe") return { id: "", title: "", ulad: "upyu", krai, edition: null, order: items("probe").length + 1, status: "trial", images: { color: null, bw: null }, sections: [], points: [] };
   return { id: "", group: "upyu-vidznachennia", title: "", ulad: "upyu", krai, level: null, status: "trial", images: { color: null, bw: null }, description: null, requirements: [] };
 }

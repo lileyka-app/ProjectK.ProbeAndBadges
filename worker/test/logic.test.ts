@@ -21,11 +21,21 @@ describe("committed catalog", () => {
     expect(checkFields(committed)).toEqual([]);
     const bundle = normalizeBundle(committed);
     const images = new Set(
-      [...bundle.badges, ...bundle.probes, ...bundle.awards].flatMap((x) => [x.images.color, x.images.bw]).filter((n): n is string => !!n),
+      [...bundle.badges, ...bundle.probes, ...bundle.degrees, ...bundle.awards].flatMap((x) => [x.images.color, x.images.bw]).filter((n): n is string => !!n),
     );
     const report = validate(bundle, images);
     expect(report.issues.filter((i) => i.severity === "error")).toEqual([]);
     expect(bundle.badges.length).toBeGreaterThan(300);
+  });
+
+  it("has both forms of every gendered degree, each with a colour and a grey image", () => {
+    const bundle = normalizeBundle(committed);
+    const families = new Map<string, string[]>();
+    for (const d of bundle.degrees) {
+      expect(d.images.color && d.images.bw, d.id).toBeTruthy();
+      if (d.gender) families.set(d.family!, [...(families.get(d.family!) ?? []), d.gender]);
+    }
+    for (const [family, genders] of families) expect(genders.sort(), family).toEqual(["female", "male"]);
   });
 });
 
@@ -118,6 +128,20 @@ describe("validate", () => {
     });
     const paths = validate(contribution, new Set(), base()).issues.map((i) => i.path);
     expect(paths).toEqual(expect.arrayContaining(["probes[0].edition", "probes[0].points[0].level", "probes[0].points[0].competencies"]));
+  });
+
+  it("checks a degree's ulad, gender, order and the ulady it is worn in", () => {
+    const ok = normalizeBundle({
+      degrees: [{ id: "upyu-virlytsia", family: "upyu-skob", title: "Пластунка вірлиця", ulad: "upyu", krai: "ua", gender: "female", order: 3, wornIn: ["usp"], images: { color: "a1.svg" } }],
+    });
+    expect(checkFields({ schemaVersion: 2, degrees: ok.degrees })).toEqual([]);
+    expect(validate(ok, new Set(["a1.svg"]), base()).issues).toEqual([]);
+
+    const bad = normalizeBundle({
+      degrees: [{ id: "x", title: "x", ulad: "usp", krai: "ua", gender: "boy" as never, order: -1, wornIn: ["usp", "nope"], images: { color: "a1.svg" } }],
+    });
+    const paths = validate(bad, new Set(["a1.svg"]), base()).issues.map((i) => i.path);
+    expect(paths).toEqual(expect.arrayContaining(["degrees[0].gender", "degrees[0].order", "degrees[0].wornIn"]));
   });
 
   it.each(["<svg><script>alert(1)</script></svg>", '<svg><rect onload="x()"/></svg>', '<svg><image href="https://evil.example/x.png"/></svg>'])("rejects active SVG %s", (s) => {

@@ -11,7 +11,11 @@
     { "name": "Вмілості" },
     { "name": "Проби" },
     { "name": "Редакції проб", "description": "Редакції проб уладу й назви, під якими їх бачать люди. Проба належить до редакції полем `edition`." },
-    { "name": "Відзначення", "description": "Відзначення УПЮ, а згодом КВ, ЗБ, ЛШ, ШБ та інші відзнаки. Групу задає поле `group`." },
+    { "name": "Ступені", "description": "Ступені уладів і відзнаки, які за них носять на лівому рукаві. Чоловіча й жіноча форма ступеня — два записи з різними зображеннями, їх об'єднує `family`." },
+    {
+      "name": "Відзначення",
+      "description": "Відзначення, хрести й відзнаки вишколів. Поле `group` називає драбину: `upyu-vidznachennia`, `usp-vidznachennia`, `usp-pozaplastovi`, `ups-vidznachennia`, `ups-pozaplastovi`, `khresty`, `lsh`, `shb`, `kv-upn`, `kv-upyu`, `zb`, `kvdch`. `level` — щабель у драбині: 1 найвищий для відзначень, 1 перший для вишколів."
+    },
     { "name": "Зображення" }
   ],
   "paths": {
@@ -196,6 +200,62 @@
         }
       }
     },
+    "/v1/degrees": {
+      "get": {
+        "tags": ["Ступені"],
+        "operationId": "listDegrees",
+        "summary": "Список ступенів",
+        "parameters": [
+          { "$ref": "#/components/parameters/krai" },
+          { "$ref": "#/components/parameters/ulad" },
+          {
+            "name": "wornIn",
+            "in": "query",
+            "description": "Ступені, відзнаку яких носять у цьому уладі: його власні й ті, що дозволено носити замість (скоб в УСП).",
+            "schema": { "type": "string", "enum": ["upp", "upn", "upyu", "usp", "ups"] },
+            "example": "usp"
+          },
+          {
+            "name": "gender",
+            "in": "query",
+            "description": "Лишити форми для чоловіків (`male`) чи жінок (`female`). Ступені без окремих форм приходять завжди.",
+            "schema": { "type": "string", "enum": ["male", "female"] },
+            "example": "female"
+          },
+          { "name": "family", "in": "query", "description": "Форми одного ступеня.", "schema": { "type": "string" }, "example": "ups-pratsi" },
+          { "$ref": "#/components/parameters/ifNoneMatch" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ступені.",
+            "headers": { "ETag": { "$ref": "#/components/headers/ETag" } },
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Degree" } } } }
+          },
+          "304": { "$ref": "#/components/responses/NotModified" }
+        }
+      }
+    },
+    "/v1/degrees/{id}": {
+      "get": {
+        "tags": ["Ступені"],
+        "operationId": "getDegree",
+        "summary": "Один ступінь",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "description": "Id ступеня.", "schema": { "type": "string" }, "example": "ups-seniorka-pratsi" },
+          { "$ref": "#/components/parameters/krai" },
+          { "$ref": "#/components/parameters/ifNoneMatch" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ступінь.",
+            "headers": { "ETag": { "$ref": "#/components/headers/ETag" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Degree" } } }
+          },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/v1/awards": {
       "get": {
         "tags": ["Відзначення"],
@@ -207,7 +267,7 @@
             "name": "group",
             "in": "query",
             "description": "Група відзначень.",
-            "schema": { "type": "string", "examples": ["upyu-vidznachennia", "kv", "zb", "lsh", "shb"] },
+            "schema": { "type": "string", "examples": ["upyu-vidznachennia", "usp-vidznachennia", "ups-vidznachennia", "khresty", "lsh", "shb", "kv-upyu", "zb"] },
             "example": "upyu-vidznachennia"
           },
           { "$ref": "#/components/parameters/ulad" },
@@ -320,7 +380,7 @@
     "schemas": {
       "Catalog": {
         "type": "object",
-        "required": ["schemaVersion", "revision", "krai", "categories", "editions", "badges", "probes", "awards"],
+        "required": ["schemaVersion", "revision", "krai", "categories", "editions", "badges", "probes", "degrees", "awards"],
         "properties": {
           "schemaVersion": { "type": "integer", "description": "Версія формату. Зараз 2.", "example": 2 },
           "revision": { "type": "integer", "description": "Номер ревізії. Зростає з кожною зміною в каталозі.", "example": 41 },
@@ -329,6 +389,7 @@
           "editions": { "type": "array", "description": "Редакції проб краю. Звичайна проба, без поля `edition`, тут не стоїть.", "items": { "$ref": "#/components/schemas/Edition" } },
           "badges": { "type": "array", "items": { "$ref": "#/components/schemas/Badge" } },
           "probes": { "type": "array", "items": { "$ref": "#/components/schemas/Probe" } },
+          "degrees": { "type": "array", "description": "Ступені й відзнаки, які за них носять.", "items": { "$ref": "#/components/schemas/Degree" } },
           "awards": { "type": "array", "items": { "$ref": "#/components/schemas/Award" } }
         }
       },
@@ -429,6 +490,24 @@
             "description": "Глибина точки в оновленій програмі: знає (розповісти, поділитись), вміє (зробити 1–2 рази), практикує (робити легко). У старих пробах поля немає."
           },
           "competencies": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Ідентифікатори компетентностей, які розвиває точка." }
+        }
+      },
+      "Degree": {
+        "type": "object",
+        "required": ["id", "title", "ulad", "krai", "order", "wornIn", "status", "images", "requirements"],
+        "properties": {
+          "id": { "type": "string", "example": "ups-seniorka-pratsi" },
+          "family": { "type": ["string", "null"], "description": "Об'єднує форми одного ступеня.", "example": "ups-pratsi" },
+          "title": { "type": "string", "example": "Пластунка сеніорка праці" },
+          "ulad": { "type": "string", "description": "Улад, який надає ступінь.", "example": "ups" },
+          "krai": { "type": "string", "example": "ua" },
+          "gender": { "type": ["string", "null"], "enum": ["male", "female", null], "description": "Для кого ця форма ступеня. `null` — ступінь однаковий для всіх.", "example": "female" },
+          "order": { "type": "integer", "description": "Щабель у драбині уладу, від 0. Форми одного ступеня й бічні гілки (скоб-гребець поруч зі скобом) стоять на одному.", "example": 1 },
+          "wornIn": { "type": "array", "description": "Інші улади, де відзнаку дозволено носити замість власної: скоб і вірлиця носять свою в УСП.", "items": { "type": "string" }, "example": [] },
+          "status": { "type": "string", "enum": ["approved", "trial"] },
+          "images": { "$ref": "#/components/schemas/Images" },
+          "description": { "type": ["string", "null"], "description": "Хто надає, умови, вигляд відзнаки; markdown." },
+          "requirements": { "type": "array", "items": { "$ref": "#/components/schemas/Requirement" } }
         }
       },
       "Award": {

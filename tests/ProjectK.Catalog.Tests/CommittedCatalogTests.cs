@@ -61,6 +61,22 @@ public class CommittedCatalogTests
     }
 
     [Fact]
+    public void CommittedCatalog_HasBothFormsOfEveryGenderedDegreeWithBothImages()
+    {
+        Assert.NotEmpty(Catalog.Bundle.Degrees);
+        Assert.All(Catalog.Bundle.Degrees, d =>
+        {
+            Assert.True(Catalog.Images.ContainsKey(d.Images.Color!), d.Id);
+            Assert.True(Catalog.Images.ContainsKey(d.Images.Bw!), d.Id);
+        });
+
+        foreach (var family in Catalog.Bundle.Degrees.Where(d => d.Gender is not null).GroupBy(d => d.Family))
+        {
+            Assert.Equal(["female", "male"], family.Select(d => d.Gender!).Order());
+        }
+    }
+
+    [Fact]
     public void KraiContributionExample_IsValidAgainstTheCatalog()
     {
         var example = CatalogPackage.ReadFolder(Path.Combine(RepoRoot, "samples/krai-contribution"));

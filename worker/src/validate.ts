@@ -6,6 +6,8 @@ import {
   type Award,
   type Badge,
   type Bundle,
+  type Degree,
+  GENDERS,
   type ImageSet,
   type Override,
   POINT_LEVELS,
@@ -56,7 +58,7 @@ export function isImageName(name: unknown): name is string {
 
 // A typo in a hand-filled template ("requirments") must fail loudly, not vanish.
 const FIELDS: Record<string, Set<string>> = {
-  bundle: new Set(["schemaVersion", "source", "categories", "editions", "badges", "probes", "awards", "overrides"]),
+  bundle: new Set(["schemaVersion", "source", "categories", "editions", "badges", "probes", "degrees", "awards", "overrides"]),
   source: new Set(["krai", "name", "contact", "generator", "generatedAtUtc"]),
   category: new Set(["id", "title"]),
   edition: new Set(["id", "title", "ulad", "krai"]),
@@ -64,6 +66,7 @@ const FIELDS: Record<string, Set<string>> = {
   probe: new Set(["id", "title", "ulad", "krai", "edition", "order", "status", "images", "sections", "points"]),
   section: new Set(["id", "code", "title", "points"]),
   point: new Set(["id", "text", "level", "competencies"]),
+  degree: new Set(["id", "family", "title", "ulad", "krai", "gender", "order", "wornIn", "status", "images", "description", "requirements"]),
   award: new Set(["id", "group", "title", "ulad", "krai", "level", "status", "images", "description", "requirements"]),
   override: new Set(["krai", "target", "hidden", "title", "addRequirements", "removeRequirements", "addPoints", "removePoints", "note"]),
   overridePoint: new Set(["section", "id", "text"]),
@@ -90,10 +93,12 @@ export function checkFields(raw: unknown): Issue[] {
         each("editions", "edition");
         each("badges", "badge");
         each("probes", "probe");
+        each("degrees", "degree");
         each("awards", "award");
         each("overrides", "override");
         break;
       case "badge":
+      case "degree":
       case "award":
         walk(v.images, "images", `${path}.images`);
         each("requirements", "requirement");
@@ -137,12 +142,14 @@ export function validate(bundle: Bundle, images: Set<string> | null, reference?:
   const categoryIds = ids(bundle.categories, reference?.categories);
   const badgeIds = ids(bundle.badges, reference?.badges);
   const probeIds = ids(bundle.probes, reference?.probes);
+  const degreeIds = ids(bundle.degrees, reference?.degrees);
   const awardIds = ids(bundle.awards, reference?.awards);
 
   unique(add, "categories", bundle.categories.map((c) => c.id));
   unique(add, "editions", bundle.editions.map((p) => p.id));
   unique(add, "badges", bundle.badges.map((b) => b.id));
   unique(add, "probes", bundle.probes.map((p) => p.id));
+  unique(add, "degrees", bundle.degrees.map((d) => d.id));
   unique(add, "awards", bundle.awards.map((a) => a.id));
 
   bundle.categories.forEach((c, i) => {
@@ -163,6 +170,7 @@ export function validate(bundle: Bundle, images: Set<string> | null, reference?:
   }
   bundle.probes.forEach((p, i) => validateProbe(add, bundle, p, `probes[${i}]`, pointIds, editions, images, reference));
   probeOrders(add, bundle, reference);
+  bundle.degrees.forEach((d, i) => validateDegree(add, bundle, d, `degrees[${i}]`, images, reference));
   bundle.awards.forEach((a, i) => validateAward(add, bundle, a, `awards[${i}]`, images, reference));
 
   const overrideKeys = new Set<string>();
@@ -170,7 +178,7 @@ export function validate(bundle: Bundle, images: Set<string> | null, reference?:
     const key = `${o.krai}|${o.target}`;
     if (overrideKeys.has(key)) add(error(`overrides[${i}]`, `Second override of ${o.target} for krai '${o.krai}'; merge them into one.`));
     overrideKeys.add(key);
-    validateOverride(add, bundle, reference, o, `overrides[${i}]`, badgeIds, probeIds, awardIds);
+    validateOverride(add, bundle, reference, o, `overrides[${i}]`, badgeIds, probeIds, degreeIds, awardIds);
   });
 
   return { issues, valid: !issues.some((x) => x.severity === "error") };
@@ -282,6 +290,24 @@ function probeOrders(add: Add, bundle: Bundle, reference?: Bundle) {
   });
 }
 
+function validateDegree(add: Add, bundle: Bundle, d: Degree, path: string, images: Set<string> | null, reference?: Bundle) {
+  slug(add, `${path}.id`, d.id);
+  text(add, `${path}.title`, d.title);
+  if (d.family != null) slug(add, `${path}.family`, d.family);
+  if (!(ULADY as readonly string[]).includes(d.ulad)) add(error(`${path}.ulad`, `Unknown ulad '${d.ulad}'.`));
+  if (d.gender != null && !(GENDERS as readonly string[]).includes(d.gender)) add(error(`${path}.gender`, `Gender is one of ${GENDERS.join(", ")}, or left out.`));
+  if (!Number.isInteger(d.order) || d.order < 0) add(error(`${path}.order`, "Order is a whole number from 0."));
+  for (const ulad of d.wornIn) {
+    if (!(ULADY as readonly string[]).includes(ulad)) add(error(`${path}.wornIn`, `Unknown ulad '${ulad}'.`));
+    else if (ulad === d.ulad) add(error(`${path}.wornIn`, `The degree is granted in ${ulad}; wornIn lists the other ulady.`));
+  }
+  unique(add, `${path}.wornIn`, d.wornIn);
+  kraiAndOwnership(add, bundle, reference, path, d.krai, reference?.degrees.find((x) => x.id === d.id)?.krai);
+  status(add, path, d.status);
+  imageSet(add, path, d.images, images, true);
+  requirements(add, `${path}.requirements`, d.requirements, false);
+}
+
 function validateAward(add: Add, bundle: Bundle, a: Award, path: string, images: Set<string> | null, reference?: Bundle) {
   slug(add, `${path}.id`, a.id);
   slug(add, `${path}.group`, a.group);
@@ -293,7 +319,7 @@ function validateAward(add: Add, bundle: Bundle, a: Award, path: string, images:
   requirements(add, `${path}.requirements`, a.requirements, false);
 }
 
-function validateOverride(add: Add, bundle: Bundle, reference: Bundle | undefined, o: Override, path: string, badgeIds: Set<string>, probeIds: Set<string>, awardIds: Set<string>) {
+function validateOverride(add: Add, bundle: Bundle, reference: Bundle | undefined, o: Override, path: string, badgeIds: Set<string>, probeIds: Set<string>, degreeIds: Set<string>, awardIds: Set<string>) {
   if (!isKrai(o.krai)) {
     add(error(`${path}.krai`, "Krai is a 2–3 letter lowercase code."));
     return;
@@ -302,9 +328,9 @@ function validateOverride(add: Add, bundle: Bundle, reference: Bundle | undefine
   if (reference && sourceKrai && o.krai !== sourceKrai) add(error(`${path}.krai`, `A bundle from krai '${sourceKrai}' may only carry its own overrides.`));
 
   const [kind, id] = typeof o.target === "string" ? o.target.split(/:(.*)/s) : [];
-  const known = kind === "badge" ? badgeIds.has(id) : kind === "probe" ? probeIds.has(id) : kind === "award" ? awardIds.has(id) : false;
+  const known = kind === "badge" ? badgeIds.has(id) : kind === "probe" ? probeIds.has(id) : kind === "degree" ? degreeIds.has(id) : kind === "award" ? awardIds.has(id) : false;
   if (!known) {
-    add(error(`${path}.target`, `Unknown target '${o.target}'; use badge:<id>, probe:<id> or award:<id>.`));
+    add(error(`${path}.target`, `Unknown target '${o.target}'; use badge:<id>, probe:<id>, degree:<id> or award:<id>.`));
     return;
   }
 

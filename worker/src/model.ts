@@ -92,7 +92,35 @@ export interface Edition {
   krai?: string | null;
 }
 
-/** Відзначення, відзнака or вишкіл: `group` tells УПЮ відзначення, КВ, ЗБ, ЛШ, ШБ apart. */
+export const GENDERS = ["male", "female"] as const;
+export type Gender = (typeof GENDERS)[number];
+
+/**
+ * Ступінь and the badge worn for it on the left sleeve: старший пластун, пластун сеніор праці,
+ * пластунка вірлиця, ... The men's and the women's form of a degree are two entries, because their
+ * badges differ; `family` joins them.
+ */
+export interface Degree {
+  id: string;
+  /** Joins the forms of one degree: "ups-pratsi" for сеніор праці and сеніорка праці. */
+  family?: string | null;
+  title: string;
+  /** Ulad that grants the degree. */
+  ulad: string;
+  krai?: string | null;
+  /** Set when the entry is one form of the degree; left out when it is the same for everybody. */
+  gender?: Gender | null;
+  /** Place on the ulad's ladder, from 0. Forms of one degree and side branches share it. */
+  order: number;
+  /** Other ulady whose members may keep wearing the badge instead of their own (скоб in УСП). */
+  wornIn: string[];
+  status: Status;
+  images: ImageSet;
+  description?: string | null;
+  requirements: Requirement[];
+}
+
+/** Відзначення, відзнака or вишкіл: `group` names the ladder (УПЮ відзначення, відзначення УСП, хрести, ЛШ, КВ УПЮ, ...). */
 export interface Award {
   id: string;
   group: string;
@@ -115,7 +143,7 @@ export interface OverridePoint {
 /** What one krai changes in an item it did not author. */
 export interface Override {
   krai: string;
-  /** "badge:<id>", "probe:<id>" or "award:<id>". */
+  /** "badge:<id>", "probe:<id>", "degree:<id>" or "award:<id>". */
   target: string;
   hidden?: boolean;
   title?: string | null;
@@ -141,15 +169,16 @@ export interface Bundle {
   editions: Edition[];
   badges: Badge[];
   probes: Probe[];
+  degrees: Degree[];
   awards: Award[];
   overrides: Override[];
 }
 
 /** Rows in D1 are one JSON document per item; `kind` says which list it belongs to. */
-export const KINDS = ["category", "edition", "badge", "probe", "award", "override"] as const;
+export const KINDS = ["category", "edition", "badge", "probe", "degree", "award", "override"] as const;
 export type Kind = (typeof KINDS)[number];
 
-export type Entry = Category | Edition | Badge | Probe | Award | Override;
+export type Entry = Category | Edition | Badge | Probe | Degree | Award | Override;
 
 export function overrideKey(o: Pick<Override, "krai" | "target">): string {
   return `${o.krai}|${o.target}`;
@@ -165,7 +194,7 @@ export function entryKrai(kind: Kind, entry: Entry): string | null {
 }
 
 export function emptyBundle(): Bundle {
-  return { schemaVersion: SCHEMA_VERSION, categories: [], editions: [], badges: [], probes: [], awards: [], overrides: [] };
+  return { schemaVersion: SCHEMA_VERSION, categories: [], editions: [], badges: [], probes: [], degrees: [], awards: [], overrides: [] };
 }
 
 const LISTS: Record<Kind, keyof Bundle> = {
@@ -173,6 +202,7 @@ const LISTS: Record<Kind, keyof Bundle> = {
   edition: "editions",
   badge: "badges",
   probe: "probes",
+  degree: "degrees",
   award: "awards",
   override: "overrides",
 };
@@ -194,6 +224,7 @@ export function normalizeBundle(raw: unknown): Bundle {
     editions: (b.editions ?? []).map(normalizeEdition),
     badges: (b.badges ?? []).map(normalizeBadge),
     probes: (b.probes ?? []).map(normalizeProbe),
+    degrees: (b.degrees ?? []).map(normalizeDegree),
     awards: (b.awards ?? []).map(normalizeAward),
     overrides: (b.overrides ?? []).map(normalizeOverride),
   };
@@ -207,6 +238,8 @@ export function normalizeEntry(kind: Kind, raw: unknown): Entry {
       return normalizeBadge(raw as Badge);
     case "probe":
       return normalizeProbe(raw as Probe);
+    case "degree":
+      return normalizeDegree(raw as Degree);
     case "award":
       return normalizeAward(raw as Award);
     case "override":
@@ -246,6 +279,20 @@ function normalizeProbe(p: Partial<Probe>): Probe {
     images: p.images ?? {},
     sections: (p.sections ?? []).map((s) => ({ ...s, points: s.points ?? [] })),
     points: p.points ?? [],
+  };
+}
+
+function normalizeDegree(d: Partial<Degree>): Degree {
+  return {
+    ...d,
+    id: d.id!,
+    title: d.title!,
+    ulad: d.ulad ?? "upyu",
+    order: d.order ?? 0,
+    wornIn: d.wornIn ?? [],
+    status: d.status ?? "approved",
+    images: d.images ?? {},
+    requirements: d.requirements ?? [],
   };
 }
 

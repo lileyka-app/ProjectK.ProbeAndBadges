@@ -65,12 +65,14 @@ public static partial class CatalogValidator
         var categoryIds = Ids(bundle.Categories.Select(c => c.Id), reference?.Categories.Select(c => c.Id));
         var badgeIds = Ids(bundle.Badges.Select(b => b.Id), reference?.Badges.Select(b => b.Id));
         var probeIds = Ids(bundle.Probes.Select(p => p.Id), reference?.Probes.Select(p => p.Id));
+        var degreeIds = Ids(bundle.Degrees.Select(d => d.Id), reference?.Degrees.Select(d => d.Id));
         var awardIds = Ids(bundle.Awards.Select(a => a.Id), reference?.Awards.Select(a => a.Id));
 
         CheckUnique(issues, "categories", bundle.Categories.Select(c => c.Id));
         CheckUnique(issues, "editions", bundle.Editions.Select(p => p.Id));
         CheckUnique(issues, "badges", bundle.Badges.Select(b => b.Id));
         CheckUnique(issues, "probes", bundle.Probes.Select(p => p.Id));
+        CheckUnique(issues, "degrees", bundle.Degrees.Select(d => d.Id));
         CheckUnique(issues, "awards", bundle.Awards.Select(a => a.Id));
 
         for (var i = 0; i < bundle.Categories.Count; i++)
@@ -111,6 +113,11 @@ public static partial class CatalogValidator
 
         ValidateProbeOrders(issues, bundle, reference);
 
+        for (var i = 0; i < bundle.Degrees.Count; i++)
+        {
+            ValidateDegree(issues, bundle, bundle.Degrees[i], $"degrees[{i}]", availableImages, reference);
+        }
+
         for (var i = 0; i < bundle.Awards.Count; i++)
         {
             ValidateAward(issues, bundle, bundle.Awards[i], $"awards[{i}]", availableImages, reference);
@@ -126,7 +133,7 @@ public static partial class CatalogValidator
                 issues.Add(CatalogIssue.Error(path, $"Second override of {o.Target} for krai '{o.Krai}'; merge them into one."));
             }
 
-            ValidateOverride(issues, bundle, reference, o, path, badgeIds, probeIds, awardIds);
+            ValidateOverride(issues, bundle, reference, o, path, badgeIds, probeIds, degreeIds, awardIds);
         }
 
         return report;
@@ -291,6 +298,37 @@ public static partial class CatalogValidator
         }
     }
 
+    private static void ValidateDegree(
+        List<CatalogIssue> issues,
+        CatalogBundle bundle,
+        DegreeDefinition degree,
+        string path,
+        IReadOnlySet<string>? availableImages,
+        CatalogBundle? reference)
+    {
+        RequireSlug(issues, path + ".id", degree.Id);
+        RequireText(issues, path + ".title", degree.Title);
+        if (degree.Family is not null) RequireSlug(issues, path + ".family", degree.Family);
+        if (!CatalogCodes.Ulady.Contains(degree.Ulad)) issues.Add(CatalogIssue.Error(path + ".ulad", $"Unknown ulad '{degree.Ulad}'."));
+        if (degree.Gender is not null && !CatalogCodes.Genders.Contains(degree.Gender))
+        {
+            issues.Add(CatalogIssue.Error(path + ".gender", $"Gender is one of {string.Join(", ", CatalogCodes.Genders)}, or left out."));
+        }
+
+        if (degree.Order < 0) issues.Add(CatalogIssue.Error(path + ".order", "Order is a whole number from 0."));
+        foreach (var ulad in degree.WornIn)
+        {
+            if (!CatalogCodes.Ulady.Contains(ulad)) issues.Add(CatalogIssue.Error(path + ".wornIn", $"Unknown ulad '{ulad}'."));
+            else if (ulad == degree.Ulad) issues.Add(CatalogIssue.Error(path + ".wornIn", $"The degree is granted in {ulad}; wornIn lists the other ulady."));
+        }
+
+        CheckUnique(issues, path + ".wornIn", degree.WornIn);
+        ValidateKraiAndOwnership(issues, bundle, reference, path, degree.Krai, reference?.Degrees.FirstOrDefault(d => d.Id == degree.Id)?.Krai);
+        ValidateStatus(issues, path, degree.Status);
+        ValidateImages(issues, path, degree.Images, availableImages, required: true);
+        ValidateRequirements(issues, path + ".requirements", degree.Requirements, required: false);
+    }
+
     private static void ValidateAward(
         List<CatalogIssue> issues,
         CatalogBundle bundle,
@@ -317,6 +355,7 @@ public static partial class CatalogValidator
         string path,
         HashSet<string> badgeIds,
         HashSet<string> probeIds,
+        HashSet<string> degreeIds,
         HashSet<string> awardIds)
     {
         if (!IsKrai(o.Krai))
@@ -335,12 +374,13 @@ public static partial class CatalogValidator
         {
             CatalogCodes.TargetBadge => badgeIds.Contains(parts[1]),
             CatalogCodes.TargetProbe => probeIds.Contains(parts[1]),
+            CatalogCodes.TargetDegree => degreeIds.Contains(parts[1]),
             CatalogCodes.TargetAward => awardIds.Contains(parts[1]),
             _ => false,
         };
         if (!known)
         {
-            issues.Add(CatalogIssue.Error(path + ".target", $"Unknown target '{o.Target}'; use badge:<id>, probe:<id> or award:<id>."));
+            issues.Add(CatalogIssue.Error(path + ".target", $"Unknown target '{o.Target}'; use badge:<id>, probe:<id>, degree:<id> or award:<id>."));
             return;
         }
 

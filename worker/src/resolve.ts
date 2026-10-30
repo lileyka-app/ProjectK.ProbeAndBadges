@@ -1,4 +1,4 @@
-import type { Award, Badge, Bundle, Entry, Kind, Override, Probe, ProbePoint, Requirement } from "./model";
+import type { Award, Badge, Bundle, Degree, Entry, Kind, Override, Probe, ProbePoint, Requirement } from "./model";
 import { entryId, listOf, normalizeEntry, overrideKey } from "./model";
 
 /**
@@ -29,9 +29,13 @@ export function resolve(catalog: Bundle, krai: string | null): Bundle {
       .map((p) => applyProbe(p, find("probe", p.id)))
       .filter((p): p is Probe => p !== null)
       .sort((a, b) => a.order - b.order),
+    degrees: catalog.degrees
+      .filter(visible)
+      .map((d) => applyNamed(d, find("degree", d.id)))
+      .filter((d): d is Degree => d !== null),
     awards: catalog.awards
       .filter(visible)
-      .map((a) => applyAward(a, find("award", a.id)))
+      .map((a) => applyNamed(a, find("award", a.id)))
       .filter((a): a is Award => a !== null),
     overrides: [],
   };
@@ -48,10 +52,11 @@ function applyBadge(b: Badge, o: Override | undefined): Badge | null {
   };
 }
 
-function applyAward(a: Award, o: Override | undefined): Award | null {
-  if (!o) return a;
+/** Degrees and awards: an override may hide the item, rename it and change its requirements. */
+function applyNamed<T extends Award | Degree>(x: T, o: Override | undefined): T | null {
+  if (!o) return x;
   if (o.hidden) return null;
-  return { ...a, title: o.title ?? a.title, requirements: applyRequirements(a.requirements, o) };
+  return { ...x, title: o.title ?? x.title, requirements: applyRequirements(x.requirements, o) };
 }
 
 function applyProbe(p: Probe, o: Override | undefined): Probe | null {
@@ -93,7 +98,7 @@ export function merge(catalog: Bundle, contribution: Bundle): { catalog: Bundle;
   const changes: Change[] = [];
   const result: Bundle = { ...catalog };
 
-  const kinds: Kind[] = ["category", "edition", "badge", "probe", "award", "override"];
+  const kinds: Kind[] = ["category", "edition", "badge", "probe", "degree", "award", "override"];
   for (const kind of kinds) {
     const list = [...listOf(catalog, kind)];
     const index = new Map(list.map((e, i) => [entryId(kind, e), i]));
@@ -119,7 +124,7 @@ export function merge(catalog: Bundle, contribution: Bundle): { catalog: Bundle;
 }
 
 function listKey(kind: Kind): string {
-  return { category: "categories", edition: "editions", badge: "badges", probe: "probes", award: "awards", override: "overrides" }[kind];
+  return { category: "categories", edition: "editions", badge: "badges", probe: "probes", degree: "degrees", award: "awards", override: "overrides" }[kind];
 }
 
 export { overrideKey };
