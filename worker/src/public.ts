@@ -3,7 +3,7 @@
 // typical request costs one D1 read (the revision) and no JSON work.
 
 import type { Env } from "./env";
-import type { Award, Badge, Bundle, ImageSet, Probe } from "./model";
+import type { Award, Badge, Bundle, Degree, ImageSet, Probe } from "./model";
 import { resolve } from "./resolve";
 import { type ImageInfo, loadCatalog, loadImages, revision } from "./store";
 
@@ -14,6 +14,7 @@ export interface PublicImages {
 
 export type PublicBadge = Omit<Badge, "images" | "notes"> & { images: PublicImages };
 export type PublicProbe = Omit<Probe, "images"> & { images: PublicImages };
+export type PublicDegree = Omit<Degree, "images"> & { images: PublicImages };
 export type PublicAward = Omit<Award, "images"> & { images: PublicImages };
 
 export interface PublicCatalog {
@@ -24,6 +25,7 @@ export interface PublicCatalog {
   editions: Bundle["editions"];
   badges: PublicBadge[];
   probes: PublicProbe[];
+  degrees: PublicDegree[];
   awards: PublicAward[];
 }
 
@@ -44,13 +46,14 @@ export function toPublic(resolved: Bundle, rev: number, krai: string | null, ima
     editions: resolved.editions,
     badges: resolved.badges.map(({ notes: _notes, ...b }) => ({ ...b, images: urls(b.images) })),
     probes: resolved.probes.map((p) => ({ ...p, images: urls(p.images) })),
+    degrees: resolved.degrees.map((d) => ({ ...d, images: urls(d.images) })),
     awards: resolved.awards.map((a) => ({ ...a, images: urls(a.images) })),
   };
 }
 
 /** Bump when the shape or the filtering of the public catalog changes: cached copies are keyed by
  * revision only, so without this a deploy would keep serving the old result until the next edit. */
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 
 const memo = new Map<string, { body: string; parsed: PublicCatalog }>();
 

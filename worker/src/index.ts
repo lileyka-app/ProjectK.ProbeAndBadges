@@ -85,6 +85,7 @@ for (const [route, list] of [
   ["editions", "editions"],
   ["badges", "badges"],
   ["probes", "probes"],
+  ["degrees", "degrees"],
   ["awards", "awards"],
 ] as const) {
   app.get(`/v1/${route}/:id`, async (c) => {
@@ -108,6 +109,20 @@ app.get("/v1/editions", async (c) => {
   const { rev, parsed } = await publicCatalog(c.env, new URL(c.req.url).origin, krai, c.executionCtx);
   const ulad = c.req.query("ulad");
   return cachedJson(c, rev, krai, JSON.stringify(parsed.editions.filter((p) => !ulad || p.ulad === ulad)));
+});
+
+app.get("/v1/degrees", async (c) => {
+  const krai = kraiParam(c);
+  const { rev, parsed } = await publicCatalog(c.env, new URL(c.req.url).origin, krai, c.executionCtx);
+  const { ulad, wornIn, gender, family } = c.req.query();
+  const degrees = parsed.degrees.filter(
+    (d) =>
+      (!ulad || d.ulad === ulad) &&
+      (!wornIn || d.ulad === wornIn || d.wornIn.includes(wornIn)) &&
+      (!gender || d.gender == null || d.gender === gender) &&
+      (!family || d.family === family),
+  );
+  return cachedJson(c, rev, krai, JSON.stringify(degrees));
 });
 
 app.get("/v1/awards", async (c) => {
@@ -174,7 +189,7 @@ app.get("/v1/admin/catalog", async (c) => {
   return c.json({ revision: rev, catalog, images: [...images.values()] });
 });
 
-const KIND_ROUTES: Record<string, Kind> = { categories: "category", editions: "edition", badges: "badge", probes: "probe", awards: "award", overrides: "override" };
+const KIND_ROUTES: Record<string, Kind> = { categories: "category", editions: "edition", badges: "badge", probes: "probe", degrees: "degree", awards: "award", overrides: "override" };
 
 /** Which of these changes the user may not make, as messages; empty when all are allowed. */
 export function forbiddenChanges(user: User, changes: Change[]): string[] {
@@ -227,7 +242,7 @@ app.put("/v1/admin/entries/:kind/:id", reviewer, async (c) => {
   return c.json({ status: changes[0].action, issues: report.issues });
 });
 
-/** Badges, probes and awards are retired, not deleted: Lilejka may hold progress against
+/** Badges, probes, degrees and awards are retired, not deleted: Lilejka may hold progress against
  * them. Categories, editions and overrides are deleted outright, once nothing points at them. */
 app.delete("/v1/admin/entries/:kind/:id", reviewer, async (c) => {
   const kind = KIND_ROUTES[c.req.param("kind")!];
