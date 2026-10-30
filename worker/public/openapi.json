@@ -14,7 +14,7 @@
     { "name": "Ступені", "description": "Ступені уладів і відзнаки, які за них носять на лівому рукаві. Чоловіча й жіноча форма ступеня — два записи з різними зображеннями, їх об'єднує `family`." },
     {
       "name": "Відзначення",
-      "description": "Відзначення, хрести й відзнаки вишколів. Поле `group` називає драбину: `upyu-vidznachennia`, `usp-vidznachennia`, `usp-pozaplastovi`, `ups-vidznachennia`, `ups-pozaplastovi`, `khresty`, `lsh`, `shb`, `kv-upn`, `kv-upyu`, `zb`, `kvdch`. `level` — щабель у драбині: 1 найвищий для відзначень, 1 перший для вишколів."
+      "description": "Відзначення, хрести й відзнаки вишколів. Поле `group` називає драбину: `orden-sv-yuriia`, `orden-vichnoho-vohniu`, `khresty`, `kv-upn`, `kv-upyu`, `lsh`, `shb`, `zb`, `kvdch`, `upyu-vidznachennia`, `usp-vidznachennia`, `ups-vidznachennia`. `level` — щабель у драбині від найнижчого, 1 перший."
     },
     { "name": "Зображення" }
   ],
@@ -267,7 +267,7 @@
             "name": "group",
             "in": "query",
             "description": "Група відзначень.",
-            "schema": { "type": "string", "examples": ["upyu-vidznachennia", "usp-vidznachennia", "ups-vidznachennia", "khresty", "lsh", "shb", "kv-upyu", "zb"] },
+            "schema": { "type": "string", "examples": ["orden-sv-yuriia", "khresty", "kv-upyu", "lsh", "shb", "zb", "usp-vidznachennia"] },
             "example": "upyu-vidznachennia"
           },
           { "$ref": "#/components/parameters/ulad" },

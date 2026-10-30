@@ -6,9 +6,9 @@ const ULADY = { upp: "УПП", upn: "УПН", upyu: "УПЮ", usp: "УСП", ups
 const GROUPS = {
   "upyu-vidznachennia": "Відзначення УПЮ",
   "usp-vidznachennia": "Відзначення УСП",
-  "usp-pozaplastovi": "Відзначення УСП поза Пластом",
   "ups-vidznachennia": "Відзначення УПС",
-  "ups-pozaplastovi": "Відзначення УПС поза Пластом",
+  "orden-sv-yuriia": "Орден святого Юрія",
+  "orden-vichnoho-vohniu": "Орден Вічного Вогню",
   khresty: "Хрести",
   lsh: "Лісова Школа",
   shb: "Школа Булавних",
@@ -19,8 +19,16 @@ const GROUPS = {
   kvdch: "КВДЧ",
 };
 const GENDER = { male: "для пластунів", female: "для пластунок" };
-/** Degrees list the senior ulady first: the catalog has them for УСП and УПС, and the УПЮ ones they keep wearing. */
-const LADDERS = ["usp", "ups", "upyu", "upn", "upp"];
+/** Degrees go ulad by ulad, from the youngest; within one, from the lowest step. */
+const LADDERS = ["upn", "upyu", "usp", "ups", "upp"];
+/** The awards tab in sections; a group missing here lands in the last one. */
+const AWARD_SECTIONS = [
+  ["Ордени й хрести", ["orden-sv-yuriia", "orden-vichnoho-vohniu", "khresty"]],
+  ["Кадра Виховників", ["kv-upn", "kv-upyu", "kv"]],
+  ["Лісова Школа, Школа Булавних і Золота Булава", ["lsh", "shb", "zb"]],
+  ["КВДЧ і відзначення уладів", ["kvdch", "upyu-vidznachennia", "usp-vidznachennia", "ups-vidznachennia"]],
+];
+const AWARD_GROUPS = AWARD_SECTIONS.flatMap(([, groups]) => groups);
 const KRAI = { ua: "Україна", pl: "Польща", cz: "Чехія", de: "Німеччина", gb: "Велика Британія", us: "США", ca: "Канада", au: "Австралія", ar: "Аргентина" };
 const LABEL = { badges: "вмілостей", probes: "проб", degrees: "ступенів", awards: "відзначень" };
 
@@ -87,12 +95,32 @@ function visible() {
         (!ulad || (x.ulady ?? [x.ulad, ...(x.wornIn ?? [])]).includes(ulad)) &&
         (!status || x.status === status),
     )
-    .sort((a, b) => (state.tab === "degrees" ? LADDERS.indexOf(a.ulad) - LADDERS.indexOf(b.ulad) : 0) || (a.order ?? 0) - (b.order ?? 0) || (a.group ?? "").localeCompare(b.group ?? "") || (a.level ?? 0) - (b.level ?? 0) || a.title.localeCompare(b.title, "uk"));
+    .sort(compare);
+}
+
+/** Degrees and awards keep the catalog's own order as the last tie-break: it pairs the forms and side branches of a step. */
+function compare(a, b) {
+  const all = state.catalog[state.tab];
+  const rank = (list, v) => (list.includes(v) ? list.indexOf(v) : list.length);
+  if (state.tab === "degrees") return rank(LADDERS, a.ulad) - rank(LADDERS, b.ulad) || a.order - b.order || all.indexOf(a) - all.indexOf(b);
+  if (state.tab === "awards") return rank(AWARD_GROUPS, a.group) - rank(AWARD_GROUPS, b.group) || (a.level ?? 0) - (b.level ?? 0) || all.indexOf(a) - all.indexOf(b);
+  return (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title, "uk");
+}
+
+/** The sorted list cut into titled sections; badges and probes stay one untitled list. */
+function sections(list) {
+  if (state.tab === "degrees") return LADDERS.map((u) => [`Ступені ${ULADY[u]}`, list.filter((x) => x.ulad === u)]);
+  if (state.tab !== "awards") return [["", list]];
+  const known = AWARD_SECTIONS.map(([title, groups]) => [title, list.filter((x) => groups.includes(x.group))]);
+  return [...known, ["Інше", list.filter((x) => !AWARD_GROUPS.includes(x.group))]];
 }
 
 function subtitle(x) {
   if (state.tab === "probes") return ULADY[x.ulad] ?? x.ulad;
-  if (state.tab === "awards") return GROUPS[x.group] ?? x.group;
+  if (state.tab === "awards") {
+    const group = GROUPS[x.group] ?? x.group;
+    return x.ulad && !group.includes(ULADY[x.ulad]) ? `${group} · ${ULADY[x.ulad]}` : group;
+  }
   if (state.tab === "degrees") return [ULADY[x.ulad] ?? x.ulad, ...x.wornIn.map((u) => `носять і в ${ULADY[u] ?? u}`)].join(" · ");
   const cats = (x.categories ?? []).map((id) => state.catalog.categories.find((k) => k.id === id)?.title).filter(Boolean);
   return [cats.join(", "), x.krai && x.krai !== "ua" ? kraiName(x.krai) : "", x.status === "trial" ? "апробаційна" : ""].filter(Boolean).join(" · ");
@@ -102,13 +130,13 @@ function render() {
   $("#field-category").hidden = state.tab !== "badges";
   $("#field-status").hidden = state.tab !== "badges";
   const list = visible();
-  $("#items").innerHTML = list
-    .map(
-      (x) => `<li><button data-id="${esc(x.id)}">
+  const card = (x) => `<li><button data-id="${esc(x.id)}">
         ${x.images?.color ? `<img class="art" loading="lazy" alt="" src="${esc(x.images.color)}">` : `<span class="noimg"></span>`}
         <span><span class="t">${esc(x.title)}</span><span class="s">${esc(subtitle(x))}</span></span>
-      </button></li>`,
-    )
+      </button></li>`;
+  $("#items").innerHTML = sections(list)
+    .filter(([, items]) => items.length)
+    .map(([title, items]) => `${title ? `<h2 class="list-title">${esc(title)}</h2>` : ""}<ul class="grid">${items.map(card).join("")}</ul>`)
     .join("");
   $("#count").textContent = `${list.length} з ${state.catalog[state.tab].length} ${LABEL[state.tab]}`;
   $("#empty").hidden = list.length > 0;
