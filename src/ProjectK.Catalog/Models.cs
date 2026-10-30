@@ -212,8 +212,8 @@ public sealed record AwardDefinition
 {
     public required string Id { get; init; }
 
-    /// <summary>One ladder each: "upyu-vidznachennia", "usp-vidznachennia", "usp-pozaplastovi",
-    /// "ups-vidznachennia", "ups-pozaplastovi", "khresty", "lsh", "shb", "kv-upn", "kv-upyu", "zb", ...</summary>
+    /// <summary>One ladder each: "orden-sv-yuriia", "orden-vichnoho-vohniu", "khresty", "kv-upn", "kv-upyu",
+    /// "lsh", "shb", "zb", "kvdch", "upyu-vidznachennia", "usp-vidznachennia", "ups-vidznachennia", ...</summary>
     public required string Group { get; init; }
 
     public required string Title { get; init; }
